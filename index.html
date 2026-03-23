@@ -1,0 +1,1473 @@
+<!doctype html>
+<html lang="fr" class="h-full">
+ <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Webradio Chat</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    body { box-sizing: border-box; }
+    .message-bubble {
+      max-width: 65%; word-wrap: break-word;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+      transition: all 0.3s ease;
+    }
+    .message-bubble:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.25); }
+    .message-sent { background: linear-gradient(135deg,#0d7c3d,#0a5f2f); margin-left: auto; border-radius: 18px 18px 4px 18px; }
+    .message-received { background: linear-gradient(135deg,#334155,#1e293b); border-radius: 18px 18px 18px 4px; }
+    .chat-container {
+      background: linear-gradient(135deg,#0f172a 0%,#1e293b 50%,#0f172a 100%);
+      background-size: 200% 200%;
+      animation: gradientShift 15s ease infinite;
+      position: relative; overflow: hidden;
+    }
+    .chat-container::before {
+      content: ''; position: absolute; inset: 0;
+      background-image:
+        radial-gradient(circle at 20% 50%,rgba(16,185,129,0.05) 0%,transparent 50%),
+        radial-gradient(circle at 80% 80%,rgba(59,130,246,0.05) 0%,transparent 50%);
+      pointer-events: none;
+    }
+    @keyframes gradientShift { 0%,100%{background-position:0% 50%} 50%{background-position:100% 50%} }
+    .conversation-item { transition: all 0.25s ease; position: relative; overflow: hidden; }
+    .conversation-item:hover { background: #262626; transform: translateX(4px); }
+    .conversation-active { background: linear-gradient(90deg,#2d2d2d,#1a1a1a); border-left: 4px solid #10b981; }
+    .loading-spinner { border: 3px solid rgba(16,185,129,0.2); border-top: 3px solid #10b981; border-radius: 50%; width: 24px; height: 24px; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .header-bar { background: linear-gradient(135deg,#1e293b,#0f172a); box-shadow: 0 4px 20px rgba(0,0,0,0.3); border-bottom: 1px solid rgba(16,185,129,0.2); }
+    .primary-button { position: relative; overflow: hidden; transition: all 0.3s ease; box-shadow: 0 4px 15px rgba(16,185,129,0.3); }
+    .primary-button:hover { transform: translateY(-2px); box-shadow: 0 6px 25px rgba(16,185,129,0.5); }
+    .context-menu { animation: slideIn 0.2s ease; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
+    @keyframes slideIn { from{opacity:0;transform:translateY(-8px)} to{opacity:1;transform:translateY(0)} }
+    input:focus, textarea:focus, select:focus { outline: none; border-color: #10b981 !important; box-shadow: 0 0 0 3px rgba(16,185,129,0.15); }
+    .reaction-bar { display: none; position: absolute; bottom: 100%; left: 0; z-index: 10; margin-bottom: 4px; }
+    .message-bubble:hover .reaction-bar { display: flex; }
+    .reaction-btn { cursor: pointer; padding: 4px 8px; border-radius: 20px; background: #2d2d2d; border: 1px solid #444; font-size: 16px; transition: transform 0.15s; }
+    .reaction-btn:hover { transform: scale(1.35); }
+    .reaction-badge { display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px; border-radius: 20px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15); cursor: pointer; font-size: 13px; transition: background 0.2s; }
+    .reaction-badge:hover { background: rgba(255,255,255,0.2); }
+    .reaction-badge.mine { background: rgba(16,185,129,0.25); border-color: #10b981; }
+    .typing-dot { width: 8px; height: 8px; border-radius: 50%; background: #10b981; animation: typingBounce 1.2s infinite; }
+    .typing-dot:nth-child(2){animation-delay:0.2s} .typing-dot:nth-child(3){animation-delay:0.4s}
+    @keyframes typingBounce { 0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-6px)} }
+    .unread-badge { min-width:18px; height:18px; border-radius:9px; background:#10b981; color:#fff; font-size:11px; font-weight:bold; display:flex; align-items:center; justify-content:center; padding:0 4px; }
+    .scale-in { animation: scaleIn 0.3s cubic-bezier(0.34,1.56,0.64,1); }
+    @keyframes scaleIn { from{opacity:0;transform:scale(0.8)} to{opacity:1;transform:scale(1)} }
+    .search-highlight { background: rgba(16,185,129,0.35); border-radius: 3px; }
+    /* Écran de chargement */
+    #loading-screen { position: fixed; inset: 0; background: #0f172a; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; transition: opacity 0.4s; }
+    #loading-screen.hidden { opacity: 0; pointer-events: none; }
+  </style>
+ </head>
+ <body class="h-full m-0">
+
+  <!-- Écran de chargement -->
+  <div id="loading-screen">
+    <div class="loading-spinner" style="width:48px;height:48px;margin-bottom:24px"></div>
+    <p style="color:#10b981;font-family:Segoe UI,sans-serif;font-size:18px;font-weight:600">Connexion au serveur…</p>
+    <p id="loading-error" style="color:#f87171;font-size:14px;margin-top:12px;display:none"></p>
+    <button id="retry-btn" onclick="initApp()" style="display:none;margin-top:16px;padding:10px 28px;background:#10b981;color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:bold;cursor:pointer">
+      Réessayer
+    </button>
+  </div>
+
+  <div id="app" class="h-full w-full flex flex-col"></div>
+
+  <script>
+  // ═══════════════════════════════════════════════════════════
+  // ⚙️ CONFIGURATION — CHANGE JUSTE CETTE URL
+  // ═══════════════════════════════════════════════════════════
+  const API_URL = 'https://script.google.com/macros/s/AKfycbwIIra6oHENMpLPleDO0-3w_HNRoH9bcbndENkcPiqseeJ7PrI9iQBY6ekpaF3W1mE_Rw/exec';
+
+  // ═══════════════════════════════════════════════════════════
+  // ÉTAT
+  // ═══════════════════════════════════════════════════════════
+  const CONFIG = {
+    background_color: '#0f172a', header_color: '#1e293b',
+    sent_bubble_color: '#0d7c3d', received_bubble_color: '#334155',
+    primary_button_color: '#10b981', text_color: '#ffffff',
+    font_family: 'Segoe UI', font_size: 14, app_title: 'Webradio Chat'
+  };
+
+  let currentUser      = null;
+  let allUsers         = [];
+  let allMessages      = [];
+  let allCodes         = [];
+  let allGroups        = [];
+  let typingUsers      = {};
+  let unreadCounts     = {};
+  let currentConversation = null;
+  let isLoading        = false;
+  let showSettings     = false;
+  let showAdminPanel   = false;
+  let replyingTo       = null;
+  let currentAdminTab  = 'users';
+  let messageContextMenu = null;
+  let typingTimeout    = null;
+  let pollingInterval  = null;
+  let searchQuery      = '';
+  let lastMessageCount = 0;
+
+  // ═══════════════════════════════════════════════════════════
+  // API — fetch via HtmlService (CORS natif GAS)
+  // ═══════════════════════════════════════════════════════════
+  // ── Bridge iframe postMessage ──────────────────────────────
+  let _bridge = null;
+  let _bridgeReady = false;
+  const _pending = {};
+
+  function initBridge() {
+    return new Promise((resolve) => {
+      if (_bridgeReady) { resolve(); return; }
+      _bridge = document.createElement('iframe');
+      // Forcer l'URL sans /u/1/ que GAS injecte quand connecté
+      const bridgeUrl = API_URL.replace('/u/1/', '/') + '?bridge=1';
+      _bridge.src = bridgeUrl;
+      _bridge.style.cssText = 'display:none;width:0;height:0;border:0';
+      document.body.appendChild(_bridge);
+      window.addEventListener('message', function(ev) {
+        if (ev.data && ev.data.ready) { _bridgeReady = true; resolve(); return; }
+        if (ev.data && ev.data.reqId !== undefined) {
+          const cb = _pending[ev.data.reqId];
+          if (cb) { delete _pending[ev.data.reqId]; cb(ev.data); }
+        }
+      });
+      // Timeout sécurité
+      setTimeout(() => { if (!_bridgeReady) { _bridgeReady = true; resolve(); } }, 5000);
+    });
+  }
+
+  async function api(method, body = {}) {
+    await initBridge();
+    return new Promise((resolve, reject) => {
+      const reqId = Date.now() + '_' + Math.random().toString(36).slice(2);
+      _pending[reqId] = (msg) => {
+        if (msg.error) { reject(new Error(msg.error)); return; }
+        try {
+          const data = typeof msg.result === 'string' ? JSON.parse(msg.result) : msg.result;
+          if (!data.ok) reject(new Error(data.error || 'Erreur API'));
+          else resolve(data);
+        } catch(e) { reject(e); }
+      };
+      _bridge.contentWindow.postMessage({ reqId, body: { method, ...body } }, '*');
+      setTimeout(() => {
+        if (_pending[reqId]) {
+          delete _pending[reqId];
+          reject(new Error('Timeout GAS'));
+        }
+      }, 20000);
+    });
+  }
+
+  async function loadAllData() {
+    const r = await api('getAll');
+    allUsers    = r.data.users    || [];
+    allMessages = r.data.messages || [];
+    allCodes    = r.data.codes    || [];
+    allGroups   = r.data.groups   || [];
+    typingUsers = r.data.typing   || {};
+  }
+
+  function genId() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  }
+
+  // ─── Polling ──────────────────────────────────────────────
+  function startPolling() {
+    if (pollingInterval) clearInterval(pollingInterval);
+    pollingInterval = setInterval(async () => {
+      if (!currentUser) return;
+      try {
+        await loadAllData();
+        const me = allUsers.find(u => u.id === currentUser.id);
+        if (me?.suspended) { renderSuspendedScreen(); return; }
+        if (me) currentUser = me;
+
+        if (showSettings || showAdminPanel) return;
+        updateConversationsList();
+        if (currentConversation) updateMessages();
+      } catch (e) { /* silencieux */ }
+    }, 3000);
+  }
+
+  // ─── Typing ───────────────────────────────────────────────
+  async function setTypingRemote(convId, isTyping) {
+    try { await api('setTyping', { conversationId: convId, username: currentUser.username, isTyping }); }
+    catch (_) {}
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // INIT
+  // ═══════════════════════════════════════════════════════════
+  async function initApp() {
+    const errEl  = document.getElementById('loading-error');
+    const retryEl = document.getElementById('retry-btn');
+    errEl.style.display = 'none';
+    retryEl.style.display = 'none';
+
+    if (!API_URL || API_URL.includes('COLLE_ICI')) {
+      errEl.textContent = "⚠️ Configure l'URL API dans le code HTML (variable API_URL).";
+      errEl.style.display = 'block';
+      return;
+    }
+
+    try {
+      // Init les feuilles si besoin
+      await api('init');
+      await loadAllData();
+      hideLoadingScreen();
+      renderAuthScreen();
+    } catch (e) {
+      errEl.textContent = 'Impossible de contacter le serveur : ' + e.message;
+      errEl.style.display = 'block';
+      retryEl.style.display = 'block';
+    }
+  }
+
+  function hideLoadingScreen() {
+    const el = document.getElementById('loading-screen');
+    el.classList.add('hidden');
+    setTimeout(() => el.remove(), 500);
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // AUTH
+  // ═══════════════════════════════════════════════════════════
+  function renderAuthScreen() {
+    if (pollingInterval) { clearInterval(pollingInterval); pollingInterval = null; }
+    const bs = CONFIG.font_size;
+    const pc = CONFIG.primary_button_color;
+    const hc = CONFIG.header_color;
+    const app = document.getElementById('app');
+    app.innerHTML = `
+      <div class="h-full w-full flex items-center justify-center" style="background:${CONFIG.background_color};font-family:${CONFIG.font_family},Arial,sans-serif">
+        <div class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
+          <div class="text-center mb-6">
+            <div class="w-20 h-20 rounded-full mx-auto mb-4 flex items-center justify-center" style="background:${hc}">
+              <i class="fas fa-headphones text-white" style="font-size:${bs*2.2}px"></i>
+            </div>
+            <h1 class="font-black mb-1 text-gray-800" style="font-size:${bs*1.8}px">${CONFIG.app_title}</h1>
+            <p class="text-gray-500" style="font-size:${bs*0.9}px">Connectez-vous pour discuter</p>
+          </div>
+          <div class="flex mb-6 border-b-2">
+            <button id="login-tab" class="flex-1 py-2 font-bold border-b-4 transition-all" style="font-size:${bs}px;color:${hc};border-color:${hc}">Connexion</button>
+            <button id="register-tab" class="flex-1 py-2 font-bold border-b-4 transition-all" style="font-size:${bs}px;color:#9ca3af;border-color:transparent">Inscription</button>
+          </div>
+          <!-- Login -->
+          <div id="login-form">
+            <div class="mb-4">
+              <label class="block mb-1 font-semibold text-gray-700" style="font-size:${bs}px">Pseudo</label>
+              <input type="text" id="login-username" class="w-full px-4 py-2 border-2 rounded-xl" style="font-size:${bs}px" placeholder="Ton pseudo" autocomplete="username">
+            </div>
+            <div class="mb-5">
+              <label class="block mb-1 font-semibold text-gray-700" style="font-size:${bs}px">Mot de passe</label>
+              <div class="relative">
+                <input type="password" id="login-password" class="w-full px-4 py-2 border-2 rounded-xl pr-12" style="font-size:${bs}px" autocomplete="current-password">
+                <button type="button" onclick="togglePw('login-password',this)" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"><i class="fas fa-eye" style="font-size:${bs}px"></i></button>
+              </div>
+            </div>
+            <button id="login-btn" class="w-full py-3 rounded-xl text-white font-bold primary-button" style="background:${pc};font-size:${bs}px">
+              <i class="fas fa-sign-in-alt mr-2"></i>Se connecter
+            </button>
+            <div id="login-error" class="mt-3 text-red-500 text-center hidden" style="font-size:${bs*0.85}px"></div>
+          </div>
+          <!-- Register -->
+          <div id="register-form" class="hidden">
+            <div class="mb-3">
+              <label class="block mb-1 font-semibold text-gray-700" style="font-size:${bs}px">Pseudo</label>
+              <input type="text" id="reg-username" class="w-full px-4 py-2 border-2 rounded-xl" style="font-size:${bs}px" placeholder="Choisis un pseudo" autocomplete="username">
+            </div>
+            <div class="mb-3">
+              <label class="block mb-1 font-semibold text-gray-700" style="font-size:${bs}px">Mot de passe</label>
+              <div class="relative">
+                <input type="password" id="reg-password" class="w-full px-4 py-2 border-2 rounded-xl pr-12" style="font-size:${bs}px" autocomplete="new-password">
+                <button type="button" onclick="togglePw('reg-password',this)" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"><i class="fas fa-eye" style="font-size:${bs}px"></i></button>
+              </div>
+            </div>
+            <div class="mb-3">
+              <label class="block mb-1 font-semibold text-gray-700" style="font-size:${bs}px">Confirmation</label>
+              <div class="relative">
+                <input type="password" id="reg-confirm" class="w-full px-4 py-2 border-2 rounded-xl pr-12" style="font-size:${bs}px" autocomplete="new-password">
+                <button type="button" onclick="togglePw('reg-confirm',this)" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"><i class="fas fa-eye" style="font-size:${bs}px"></i></button>
+              </div>
+            </div>
+            <div class="mb-5">
+              <label class="block mb-1 font-semibold text-gray-700" style="font-size:${bs}px">Code d'invitation</label>
+              <input type="text" id="reg-code" class="w-full px-4 py-2 border-2 rounded-xl" style="font-size:${bs}px" placeholder="6 chiffres" maxlength="6">
+              <p class="text-gray-400 mt-1" style="font-size:${bs*0.75}px">Premier utilisateur → admin automatiquement</p>
+            </div>
+            <button id="register-btn" class="w-full py-3 rounded-xl text-white font-bold primary-button" style="background:${pc};font-size:${bs}px">
+              <i class="fas fa-user-plus mr-2"></i>S'inscrire
+            </button>
+            <div id="register-error" class="mt-3 text-red-500 text-center hidden" style="font-size:${bs*0.85}px"></div>
+          </div>
+        </div>
+      </div>`;
+
+    document.getElementById('login-tab').onclick    = () => switchAuthTab('login');
+    document.getElementById('register-tab').onclick = () => switchAuthTab('register');
+    document.getElementById('login-btn').onclick    = handleLogin;
+    document.getElementById('register-btn').onclick = handleRegister;
+    document.getElementById('login-password').onkeydown = e => { if(e.key==='Enter') handleLogin(); };
+    document.getElementById('reg-code').onkeydown       = e => { if(e.key==='Enter') handleRegister(); };
+  }
+
+  function togglePw(inputId, btn) {
+    const inp = document.getElementById(inputId);
+    const ic  = btn.querySelector('i');
+    if (inp.type==='password') { inp.type='text'; ic.className='fas fa-eye-slash'; }
+    else { inp.type='password'; ic.className='fas fa-eye'; }
+  }
+
+  function switchAuthTab(tab) {
+    const hc = CONFIG.header_color;
+    const lt = document.getElementById('login-tab');
+    const rt = document.getElementById('register-tab');
+    if (tab==='login') {
+      lt.style.color=hc; lt.style.borderColor=hc;
+      rt.style.color='#9ca3af'; rt.style.borderColor='transparent';
+      document.getElementById('login-form').classList.remove('hidden');
+      document.getElementById('register-form').classList.add('hidden');
+    } else {
+      rt.style.color=hc; rt.style.borderColor=hc;
+      lt.style.color='#9ca3af'; lt.style.borderColor='transparent';
+      document.getElementById('register-form').classList.remove('hidden');
+      document.getElementById('login-form').classList.add('hidden');
+    }
+  }
+
+  async function handleLogin() {
+    if (isLoading) return;
+    const username = document.getElementById('login-username').value.trim();
+    const password = document.getElementById('login-password').value;
+    const err = document.getElementById('login-error');
+    if (!username || !password) { showErr(err,'Remplis tous les champs'); return; }
+
+    await loadAllData();
+    const user = allUsers.find(u => u.username===username && u.password===password);
+    if (!user)          { showErr(err,'Identifiants incorrects'); return; }
+    if (user.suspended) { showErr(err,'⛔ Compte suspendu'); return; }
+
+    currentUser = user;
+    unreadCounts = {};
+    renderChatInterface();
+    startPolling();
+  }
+
+  async function handleRegister() {
+    if (isLoading) return;
+    const username = document.getElementById('reg-username').value.trim();
+    const password = document.getElementById('reg-password').value;
+    const confirm  = document.getElementById('reg-confirm').value;
+    const code     = document.getElementById('reg-code').value.trim();
+    const err = document.getElementById('register-error');
+
+    if (!username||!password||!confirm) { showErr(err,'Remplis tous les champs'); return; }
+    if (password!==confirm)             { showErr(err,'Les mots de passe ne correspondent pas'); return; }
+
+    await loadAllData();
+    const isFirst = allUsers.length === 0;
+
+    if (!isFirst) {
+      if (!code) { showErr(err,"Code d'invitation requis"); return; }
+      const validCode = allCodes.find(c => c.code===code && !c.isUsed);
+      if (!validCode) { showErr(err,'Code invalide ou déjà utilisé'); return; }
+      // Marquer le code comme utilisé
+      await api('update', { sheet:'codes', id:validCode.id, data:{...validCode, isUsed:true} });
+    }
+
+    if (allUsers.find(u=>u.username===username)) { showErr(err,'Pseudo déjà pris'); return; }
+    if (allUsers.length>=999) { showErr(err,'Limite 999 utilisateurs'); return; }
+
+    isLoading = true;
+    setBtnLoading('register-btn', true);
+    const newUser = { id:genId(), username, password, isAdmin:isFirst, suspended:false, avatar:'', createdAt:new Date().toISOString() };
+    await api('create', { sheet:'users', data:newUser });
+    isLoading = false;
+    setBtnLoading('register-btn', false, "<i class='fas fa-user-plus mr-2'></i>S'inscrire");
+
+    switchAuthTab('login');
+    document.getElementById('login-username').value = username;
+    showToast(isFirst?'Compte admin créé !':'Compte créé ! Connecte-toi.', 'success');
+  }
+
+  function showErr(div, msg) {
+    div.textContent = msg;
+    div.classList.remove('hidden');
+    setTimeout(()=>div.classList.add('hidden'), 4000);
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // INTERFACE PRINCIPALE
+  // ═══════════════════════════════════════════════════════════
+  function renderChatInterface() {
+    const bs = CONFIG.font_size;
+    const pc = CONFIG.primary_button_color;
+    const hc = CONFIG.header_color;
+    const bg = CONFIG.background_color;
+    const tc = CONFIG.text_color;
+    const app = document.getElementById('app');
+
+    let chatArea = '';
+    if (currentConversation) {
+      let title='', subtitle='';
+      if (currentConversation==='announcements_feed') {
+        title='📢 Fil d\'annonces'; subtitle='Annonces publiques';
+      } else if (currentConversation.startsWith('group_')) {
+        const g = allGroups.find(g=>g.groupId===currentConversation);
+        if (g) { title=`${g.groupEmoji} ${g.groupName}`; subtitle=`${g.groupMembers.split(',').length} membres`; }
+      } else {
+        const other = currentConversation.split('_').find(u=>u!==currentUser.username);
+        title = other||currentConversation;
+        subtitle = allUsers.find(u=>u.username===other)?.isAdmin?'👑 Admin':'Membre';
+      }
+      const curGroup = allGroups.find(g=>g.groupId===currentConversation);
+      const isFeed = currentConversation==='announcements_feed';
+      const canWrite = isFeed ? currentUser.isAdmin : (!curGroup||!curGroup.isAnnouncement||currentUser.isAdmin);
+
+      chatArea = `
+        <div class="flex-1 flex flex-col" style="background:${bg}">
+          <div class="header-bar flex items-center gap-3 p-4 text-white" style="background:${hc}">
+            <button id="back-mobile-btn" class="md:hidden hover:bg-white hover:bg-opacity-20 p-2 rounded">
+              <i class="fas fa-arrow-left" style="font-size:${bs}px"></i>
+            </button>
+            <div class="w-10 h-10 rounded-full flex items-center justify-center text-lg" style="background:rgba(255,255,255,0.2)">
+              <i class="fas fa-${currentConversation.startsWith('group_')||isFeed?'users':'user'}"></i>
+            </div>
+            <div class="flex-1">
+              <div class="font-bold" style="font-size:${bs}px">${title}</div>
+              <div style="font-size:${bs*0.75}px;color:rgba(255,255,255,0.65)">${subtitle}</div>
+            </div>
+            <button id="search-toggle-btn" class="hover:bg-white hover:bg-opacity-20 p-2 rounded">
+              <i class="fas fa-search" style="font-size:${bs}px"></i>
+            </button>
+          </div>
+          <div id="search-bar" class="hidden px-4 py-2 border-b" style="background:#1a1a1a;border-color:#333">
+            <div class="relative">
+              <input type="text" id="search-input" class="w-full px-4 py-2 rounded-full" style="background:#262626;border:1px solid #444;color:${tc};font-size:${bs}px" placeholder="Rechercher…">
+              <button id="search-close-btn" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"><i class="fas fa-times"></i></button>
+            </div>
+          </div>
+          <div id="messages-container" class="flex-1 overflow-y-auto p-4 chat-container" style="background:${bg}"></div>
+          <div id="typing-indicator" class="hidden px-5 pb-1" style="background:#fff">
+            <div class="flex items-center gap-2">
+              <div class="flex gap-1"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>
+              <span id="typing-text" style="font-size:${bs*0.8}px;color:#6b7280"></span>
+            </div>
+          </div>
+          ${canWrite ? `
+          <div class="p-4 border-t" style="background:#fff;border-color:#e5e7eb">
+            <div class="flex gap-2 mb-2 pb-2 border-b" style="border-color:#e5e7eb">
+              <button id="fmt-bold" class="px-3 py-1 rounded font-bold text-gray-600 hover:bg-gray-100" style="font-size:${bs}px">B</button>
+              <button id="fmt-italic" class="px-3 py-1 rounded italic text-gray-600 hover:bg-gray-100" style="font-size:${bs}px">I</button>
+              <button id="fmt-strike" class="px-3 py-1 rounded text-gray-600 hover:bg-gray-100" style="font-size:${bs}px;text-decoration:line-through">S</button>
+              <button id="fmt-code" class="px-3 py-1 rounded font-mono text-gray-600 hover:bg-gray-100" style="font-size:${bs}px">&lt;/&gt;</button>
+            </div>
+            <div id="reply-preview" class="hidden mb-2 p-2 rounded-lg flex items-center justify-between" style="background:#f0fdf4;border-left:3px solid ${pc}">
+              <div>
+                <div class="text-xs font-semibold" style="color:${pc}">Répondre à :</div>
+                <div class="text-sm text-gray-600" id="reply-text"></div>
+              </div>
+              <button id="cancel-reply-btn" class="text-gray-400 hover:text-gray-600 ml-2"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="flex gap-2 items-end">
+              <textarea id="message-input" rows="1" class="flex-1 px-4 py-3 border rounded-2xl resize-none" style="font-size:${bs}px;background:#f9fafb;border-color:#d1d5db;color:#1f2937;max-height:120px;overflow-y:auto" placeholder="Écrire un message…"></textarea>
+              <button id="send-btn" class="primary-button w-12 h-12 rounded-full text-white flex items-center justify-center flex-shrink-0" style="background:${pc}">
+                <i class="fas fa-paper-plane" style="font-size:${bs}px"></i>
+              </button>
+            </div>
+          </div>
+          ` : `
+          <div class="p-4 border-t text-center" style="background:#fff8f8;border-color:#e5e7eb">
+            <p style="font-size:${bs*0.9}px;color:#991b1b"><i class="fas fa-lock mr-2"></i>Seuls les administrateurs peuvent publier ici</p>
+          </div>`}
+        </div>`;
+    } else {
+      chatArea = `
+        <div class="flex-1 hidden md:flex flex-col items-center justify-center" style="background:${bg}">
+          <div class="text-center p-8">
+            <div class="w-24 h-24 rounded-full mx-auto mb-6 flex items-center justify-center" style="background:${hc};opacity:0.12">
+              <i class="fas fa-comments" style="font-size:${bs*3}px;color:${hc}"></i>
+            </div>
+            <h2 class="font-bold mb-2" style="font-size:${bs*1.5}px;color:${tc}">Bienvenue sur ${CONFIG.app_title}</h2>
+            <p style="font-size:${bs}px;color:#6b7280">Sélectionne une conversation</p>
+          </div>
+        </div>`;
+    }
+
+    app.innerHTML = `
+      <div class="h-full w-full flex" style="font-family:${CONFIG.font_family},Arial,sans-serif">
+        <!-- Sidebar -->
+        <div class="w-full md:w-80 flex flex-col flex-shrink-0 border-r ${currentConversation?'hidden md:flex':'flex'}" style="background:#111;border-color:#333">
+          <div class="header-bar flex items-center justify-between p-4 text-white" style="background:${hc}">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-full flex items-center justify-center text-xl font-bold" style="background:rgba(255,255,255,0.2)">
+                ${currentUser.avatar||currentUser.username.charAt(0).toUpperCase()}
+              </div>
+              <div>
+                <div class="font-semibold" style="font-size:${bs}px">${currentUser.username}</div>
+                ${currentUser.isAdmin?`<span style="font-size:${bs*0.65}px;background:#f59e0b;color:#000;padding:1px 5px;border-radius:3px;font-weight:bold">ADMIN</span>`:''}
+              </div>
+            </div>
+            <div class="flex gap-1">
+              ${currentUser.isAdmin?`<button id="admin-btn" class="hover:bg-white hover:bg-opacity-20 p-2 rounded" title="Admin"><i class="fas fa-shield-alt" style="font-size:${bs}px"></i></button>`:''}
+              <button id="settings-btn" class="hover:bg-white hover:bg-opacity-20 p-2 rounded" title="Paramètres"><i class="fas fa-cog" style="font-size:${bs}px"></i></button>
+            </div>
+          </div>
+          <div class="flex border-b" style="background:#1a1a1a;border-color:#333">
+            <button class="chat-tab flex-1 py-3 text-sm font-semibold" data-tab="announcements" style="color:#e5e5e5;border-bottom:3px solid ${pc}"><i class="fas fa-bullhorn mr-1"></i>Annonces</button>
+            <button class="chat-tab flex-1 py-3 text-sm font-semibold" data-tab="groups" style="color:#999;border-bottom:3px solid transparent"><i class="fas fa-users mr-1"></i>Groupes</button>
+            <button class="chat-tab flex-1 py-3 text-sm font-semibold" data-tab="private" style="color:#999;border-bottom:3px solid transparent"><i class="fas fa-user mr-1"></i>MP</button>
+          </div>
+          <div class="flex-1 overflow-y-auto" id="conversations-container">
+            <div id="announcements-list"></div>
+            <div id="groups-list" class="hidden"></div>
+            <div id="private-chats-list" class="hidden"></div>
+          </div>
+        </div>
+        ${chatArea}
+      </div>`;
+
+    // Events
+    document.getElementById('settings-btn').onclick = () => { showSettings=true; renderSettings(); };
+    document.getElementById('admin-btn')?.addEventListener('click', () => { showAdminPanel=true; renderAdminPanel(); });
+    document.querySelectorAll('.chat-tab').forEach(t => t.onclick = ()=>switchChatTab(t.dataset.tab));
+    document.getElementById('back-mobile-btn')?.addEventListener('click', () => { currentConversation=null; renderChatInterface(); });
+    document.getElementById('search-toggle-btn')?.addEventListener('click', () => {
+      document.getElementById('search-bar').classList.toggle('hidden');
+      document.getElementById('search-input')?.focus();
+    });
+    document.getElementById('search-close-btn')?.addEventListener('click', () => {
+      searchQuery=''; document.getElementById('search-bar').classList.add('hidden'); updateMessages();
+    });
+    document.getElementById('search-input')?.addEventListener('input', e => { searchQuery=e.target.value.trim().toLowerCase(); updateMessages(); });
+
+    if (currentConversation) {
+      const inp = document.getElementById('message-input');
+      document.getElementById('send-btn')?.addEventListener('click', sendMessage);
+      inp?.addEventListener('keydown', e => { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage();} });
+      inp?.addEventListener('input', () => {
+        inp.style.height='auto'; inp.style.height=Math.min(inp.scrollHeight,120)+'px';
+        setTypingRemote(currentConversation,true);
+        if(typingTimeout) clearTimeout(typingTimeout);
+        typingTimeout=setTimeout(()=>setTypingRemote(currentConversation,false),2000);
+      });
+      document.getElementById('fmt-bold')?.addEventListener('click',()=>applyFmt('*'));
+      document.getElementById('fmt-italic')?.addEventListener('click',()=>applyFmt('_'));
+      document.getElementById('fmt-strike')?.addEventListener('click',()=>applyFmt('~'));
+      document.getElementById('fmt-code')?.addEventListener('click',()=>applyFmt('`'));
+      document.getElementById('cancel-reply-btn')?.addEventListener('click',cancelReply);
+      updateMessages();
+    }
+
+    document.addEventListener('click', e => {
+      if(messageContextMenu && !e.target.closest('.message-menu-btn') && !e.target.closest('.context-menu')) {
+        messageContextMenu.remove(); messageContextMenu=null;
+      }
+    });
+    updateConversationsList();
+  }
+
+  // ─── Liste conversations ───────────────────────────────────
+  function updateConversationsList() {
+    const bs=CONFIG.font_size, pc=CONFIG.primary_button_color;
+    const annoList=document.getElementById('announcements-list');
+    const grpList=document.getElementById('groups-list');
+    const prvList=document.getElementById('private-chats-list');
+    if(!annoList||!grpList||!prvList) return;
+
+    const lastAnno = allMessages.filter(m=>m.conversationId==='announcements_feed').sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp))[0];
+    annoList.innerHTML = buildConvItem('announcements_feed','📢','Fil d\'annonces',lastAnno?.content||'Annonces publiques',false,pc,bs);
+
+    const myGroups = allGroups.filter(g=>g.groupMembers&&g.groupMembers.split(',').includes(currentUser.username));
+    grpList.innerHTML = myGroups.length===0
+      ? `<p class="p-4 text-center" style="color:#555;font-size:${bs*0.9}px">Aucun groupe</p>`
+      : myGroups.map(g=>{
+          const last=allMessages.filter(m=>m.conversationId===g.groupId).sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp))[0];
+          return buildConvItem(g.groupId,g.groupEmoji,g.groupName,last?.content||`${g.groupMembers.split(',').length} membres`,g.isAnnouncement,pc,bs);
+        }).join('');
+
+    const others=allUsers.filter(u=>u.username!==currentUser.username&&!u.suspended);
+    prvList.innerHTML = others.length===0
+      ? `<p class="p-4 text-center" style="color:#555;font-size:${bs*0.9}px">Aucun utilisateur</p>`
+      : others.map(u=>{
+          const cid=[currentUser.username,u.username].sort().join('_');
+          const last=allMessages.filter(m=>m.conversationId===cid).sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp))[0];
+          return buildConvItem(cid,u.avatar||u.username.charAt(0).toUpperCase(),u.username+(u.isAdmin?' 👑':''),last?.content||'Aucun message',false,pc,bs,true);
+        }).join('');
+
+    document.querySelectorAll('.conversation-item').forEach(item=>{
+      item.onclick=()=>{
+        if(unreadCounts[item.dataset.conv]) delete unreadCounts[item.dataset.conv];
+        currentConversation=item.dataset.conv; searchQuery='';
+        renderChatInterface();
+      };
+    });
+  }
+
+  function buildConvItem(convId,icon,title,preview,isAnn,pc,bs,isUser=false) {
+    const active=currentConversation===convId;
+    const previewTrunc=(preview||'').length>38?preview.substring(0,38)+'…':preview;
+    return `
+      <div class="conversation-item p-3 cursor-pointer border-b ${active?'conversation-active':''}" data-conv="${convId}" style="border-color:#222;background:${active?'#2a2a2a':'#1a1a1a'}">
+        <div class="flex items-center gap-3">
+          <div class="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 text-xl" style="background:${isUser?pc:'linear-gradient(135deg,'+pc+',#1e293b)'}">
+            <span style="color:#fff;font-weight:bold;font-size:${bs*1.1}px">${icon}</span>
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center justify-between gap-2">
+              <span class="font-semibold truncate" style="font-size:${bs}px;color:#e5e5e5">${title}</span>
+              ${isAnn?`<span style="font-size:${bs*0.6}px;background:#dc2626;color:#fff;padding:1px 5px;border-radius:4px;flex-shrink:0">📢</span>`:''}
+            </div>
+            <div class="truncate" style="font-size:${bs*0.8}px;color:#555">${previewTrunc}</div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function switchChatTab(tab) {
+    const pc=CONFIG.primary_button_color;
+    document.querySelectorAll('.chat-tab').forEach(t=>{
+      const a=t.dataset.tab===tab;
+      t.style.color=a?'#e5e5e5':'#999';
+      t.style.borderBottom=`3px solid ${a?pc:'transparent'}`;
+    });
+    document.getElementById('announcements-list').classList.toggle('hidden',tab!=='announcements');
+    document.getElementById('groups-list').classList.toggle('hidden',tab!=='groups');
+    document.getElementById('private-chats-list').classList.toggle('hidden',tab!=='private');
+  }
+
+  // ─── Messages ─────────────────────────────────────────────
+  function updateMessages() {
+    const bs=CONFIG.font_size, pc=CONFIG.primary_button_color, tc=CONFIG.text_color;
+    const sentBg=CONFIG.sent_bubble_color, recvBg=CONFIG.received_bubble_color;
+    const container=document.getElementById('messages-container');
+    if(!container) return;
+
+    let msgs=allMessages.filter(m=>m.conversationId===currentConversation);
+    msgs = currentConversation==='announcements_feed'
+      ? msgs.sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp))
+      : msgs.sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp));
+    if(searchQuery) msgs=msgs.filter(m=>m.content?.toLowerCase().includes(searchQuery));
+
+    // Typing
+    const typList=(typingUsers[currentConversation]||[]).filter(u=>u!==currentUser.username);
+    const typInd=document.getElementById('typing-indicator');
+    const typTxt=document.getElementById('typing-text');
+    if(typInd&&typTxt) {
+      typTxt.textContent=typList.length===1?`${typList[0]} écrit…`:`${typList.join(', ')} écrivent…`;
+      typInd.classList.toggle('hidden',typList.length===0);
+    }
+
+    let currentDate=null, html='';
+    msgs.forEach(msg=>{
+      const isSent=msg.senderId===currentUser.username;
+      const msgDate=new Date(msg.timestamp).toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'});
+      const time=new Date(msg.timestamp).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+
+      if(msgDate!==currentDate) {
+        currentDate=msgDate;
+        html+=`<div class="flex justify-center my-3"><span class="px-3 py-1 rounded-full" style="background:rgba(255,255,255,0.07);color:#666;font-size:${bs*0.75}px">${msgDate}</span></div>`;
+      }
+
+      const showName=!isSent&&(currentConversation.startsWith('group_')||currentConversation==='announcements_feed');
+      const content=highlightSearch(fmtMsg(msg.content||''),searchQuery);
+      const replyHtml=msg.replyTo?`<div class="text-xs italic bg-black bg-opacity-20 px-3 py-1 rounded-lg mb-2" style="font-size:${bs*0.78}px;border-left:3px solid rgba(255,255,255,0.3)">↩ ${msg.replyTo}</div>`:'';
+      const reactions=msg.reactions||{};
+      const reactHtml=Object.keys(reactions).length>0
+        ?`<div class="flex flex-wrap gap-1 mt-2">${Object.entries(reactions).map(([e,u])=>`<span class="reaction-badge ${u.includes(currentUser.username)?'mine':''}" data-msg-id="${msg.id}" data-emoji="${e}" title="${u.join(', ')}">${e} <span class="text-xs font-bold">${u.length}</span></span>`).join('')}</div>`:'';
+
+      html+=`
+        <div class="flex mb-3 ${isSent?'justify-end':'justify-start'} group items-end gap-2">
+          ${!isSent?`<div class="w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center text-sm font-bold text-white mb-1" style="background:${pc}">${msg.senderAvatar||msg.senderName?.charAt(0)||'?'}</div>`:''}
+          <div class="relative message-bubble ${isSent?'message-sent':'message-received'} rounded-lg p-3" style="background:${isSent?sentBg:recvBg}">
+            <div class="reaction-bar gap-1 p-1 rounded-xl flex" style="background:#1e1e1e;border:1px solid #333">
+              ${['👍','❤️','😂','😮','😢','🔥'].map(e=>`<span class="reaction-btn" data-msg-id="${msg.id}" data-emoji="${e}">${e}</span>`).join('')}
+            </div>
+            ${showName?`<div class="font-bold mb-1" style="font-size:${bs*0.8}px;color:${pc}">${msg.senderName}</div>`:''}
+            ${replyHtml}
+            <div style="font-size:${bs}px;color:${tc};white-space:pre-wrap">${content}</div>
+            ${reactHtml}
+            <div class="flex items-center justify-end gap-1 mt-1">
+              <span style="font-size:${bs*0.7}px;color:rgba(255,255,255,0.45)">${time}</span>
+              ${isSent?`<i class="fas fa-check-double" style="font-size:${bs*0.6}px;color:rgba(255,255,255,0.4)"></i>`:''}
+              <button class="message-menu-btn opacity-0 group-hover:opacity-100 transition-opacity ml-1" data-msg-id="${msg.id}" style="color:rgba(255,255,255,0.4)">
+                <i class="fas fa-chevron-down" style="font-size:${bs*0.75}px"></i>
+              </button>
+            </div>
+          </div>
+          ${isSent?`<div class="w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center text-sm font-bold text-white mb-1" style="background:${pc}">${currentUser.avatar||currentUser.username.charAt(0)}</div>`:''}
+        </div>`;
+    });
+
+    if(!html) html=`<div class="flex flex-col items-center justify-center h-full text-center p-8">
+      <i class="fas fa-comments mb-4" style="font-size:${bs*4}px;color:rgba(255,255,255,0.05)"></i>
+      <p style="font-size:${bs}px;color:#444">${searchQuery?'Aucun résultat':'Aucun message. Lance la discussion !'}</p>
+    </div>`;
+
+    container.innerHTML=html;
+    if(!searchQuery) container.scrollTop=container.scrollHeight;
+
+    document.querySelectorAll('.message-menu-btn').forEach(b=>{
+      b.onclick=e=>{e.stopPropagation();const m=allMessages.find(m=>m.id===b.dataset.msgId);if(m)showCtxMenu(e,m);};
+    });
+    document.querySelectorAll('.reaction-btn, .reaction-badge').forEach(b=>{
+      b.onclick=e=>{e.stopPropagation();toggleReaction(b.dataset.msgId,b.dataset.emoji);};
+    });
+  }
+
+  function highlightSearch(html,q) {
+    if(!q) return html;
+    return html.replace(new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')})`, 'gi'),'<mark class="search-highlight">$1</mark>');
+  }
+
+  function fmtMsg(text) {
+    return text
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/\*([^\*]+)\*/g,'<strong>$1</strong>')
+      .replace(/_([^_]+)_/g,'<em>$1</em>')
+      .replace(/~([^~]+)~/g,'<del>$1</del>')
+      .replace(/`([^`]+)`/g,'<code style="background:rgba(0,0,0,0.2);padding:2px 5px;border-radius:3px;font-family:monospace">$1</code>');
+  }
+
+  // ─── Réactions ────────────────────────────────────────────
+  async function toggleReaction(msgId, emoji) {
+    const msg=allMessages.find(m=>m.id===msgId);
+    if(!msg) return;
+    if(!msg.reactions) msg.reactions={};
+    const users=msg.reactions[emoji]||[];
+    if(users.includes(currentUser.username)) {
+      msg.reactions[emoji]=users.filter(u=>u!==currentUser.username);
+      if(!msg.reactions[emoji].length) delete msg.reactions[emoji];
+    } else {
+      msg.reactions[emoji]=[...users,currentUser.username];
+    }
+    await api('update',{sheet:'messages',id:msg.id,data:msg});
+    updateMessages();
+  }
+
+  // ─── Envoi ────────────────────────────────────────────────
+  async function sendMessage() {
+    if(isLoading) return;
+    const inp=document.getElementById('message-input');
+    const content=inp?.value.trim();
+    if(!content) return;
+
+    const isFeed=currentConversation==='announcements_feed';
+    if(isFeed&&!currentUser.isAdmin){showToast('Seuls les admins publient ici','error');return;}
+    const cg=allGroups.find(g=>g.groupId===currentConversation);
+    if(cg?.isAnnouncement&&!currentUser.isAdmin){showToast('Seuls les admins publient ici','error');return;}
+
+    isLoading=true;
+    const btn=document.getElementById('send-btn');
+    if(btn){btn.disabled=true;btn.innerHTML='<div class="loading-spinner" style="width:20px;height:20px"></div>';}
+
+    const msg={
+      id:genId(), conversationId:currentConversation,
+      senderId:currentUser.username, senderName:currentUser.username,
+      senderAvatar:currentUser.avatar||currentUser.username.charAt(0).toUpperCase(),
+      content, replyTo:replyingTo?replyingTo.content.substring(0,60):null,
+      reactions:{}, timestamp:new Date().toISOString()
+    };
+    await api('create',{sheet:'messages',data:msg});
+    await setTypingRemote(currentConversation,false);
+    allMessages.push(msg);
+
+    isLoading=false;
+    if(inp){inp.value='';inp.style.height='auto';}
+    replyingTo=null;
+    document.getElementById('reply-preview')?.classList.add('hidden');
+    if(btn){btn.disabled=false;btn.innerHTML=`<i class="fas fa-paper-plane" style="font-size:${CONFIG.font_size}px"></i>`;}
+    updateMessages();
+    updateConversationsList();
+  }
+
+  function applyFmt(char) {
+    const inp=document.getElementById('message-input');if(!inp) return;
+    const s=inp.selectionStart,e=inp.selectionEnd,sel=inp.value.substring(s,e);
+    if(sel){inp.value=inp.value.substring(0,s)+`${char}${sel}${char}`+inp.value.substring(e);inp.setSelectionRange(s+char.length,e+char.length);}
+    else{inp.value=inp.value.substring(0,s)+`${char}${char}`+inp.value.substring(e);inp.setSelectionRange(s+char.length,s+char.length);}
+    inp.focus();
+  }
+
+  function cancelReply() {
+    replyingTo=null;
+    document.getElementById('reply-preview')?.classList.add('hidden');
+  }
+
+  // ─── Menu contextuel message ──────────────────────────────
+  function showCtxMenu(e, msg) {
+    if(messageContextMenu) messageContextMenu.remove();
+    const bs=CONFIG.font_size;
+    const isSent=msg.senderId===currentUser.username;
+    const menu=document.createElement('div');
+    menu.className='context-menu fixed rounded-xl py-2 z-50';
+    let l=e.clientX,t=e.clientY;
+    if(l+200>window.innerWidth) l=window.innerWidth-210;
+    if(t+200>window.innerHeight) t=window.innerHeight-210;
+    menu.style.cssText=`left:${l}px;top:${t}px;min-width:200px;background:#2d2d2d;border:1px solid #444;font-size:${bs}px`;
+    const items=[
+      {a:'reply',ic:'fa-reply',lb:'Répondre',cl:'#e5e5e5'},
+      {a:'copy',ic:'fa-copy',lb:'Copier',cl:'#e5e5e5'},
+      {a:'forward',ic:'fa-share',lb:'Transférer',cl:'#e5e5e5'},
+      ...(!isSent?[{a:'report',ic:'fa-flag',lb:'Signaler',cl:'#f87171'}]:[]),
+      ...(isSent||currentUser.isAdmin?[{a:'delete',ic:'fa-trash',lb:'Supprimer',cl:'#f87171'}]:[]),
+    ];
+    menu.innerHTML=items.map(it=>`<button class="w-full px-4 py-2.5 text-left flex items-center gap-3 hover:bg-white hover:bg-opacity-10" data-action="${it.a}" style="color:${it.cl}"><i class="fas ${it.ic} w-4"></i>${it.lb}</button>`).join('');
+    document.body.appendChild(menu);
+    messageContextMenu=menu;
+    menu.querySelectorAll('[data-action]').forEach(b=>{b.onclick=()=>{handleMsgAction(b.dataset.action,msg);menu.remove();messageContextMenu=null;};});
+  }
+
+  async function handleMsgAction(action, msg) {
+    if(action==='delete') {
+      if(!(msg.senderId===currentUser.username||currentUser.isAdmin)) return;
+      await api('delete',{sheet:'messages',id:msg.id});
+      allMessages=allMessages.filter(m=>m.id!==msg.id);
+      showToast('Message supprimé','success'); updateMessages(); return;
+    }
+    if(action==='reply') {
+      replyingTo=msg;
+      const prev=document.getElementById('reply-preview'),rt=document.getElementById('reply-text');
+      if(prev&&rt){rt.textContent=msg.content.substring(0,60)+(msg.content.length>60?'…':'');prev.classList.remove('hidden');document.getElementById('message-input')?.focus();}
+    } else if(action==='copy') {
+      try{await navigator.clipboard.writeText(msg.content);}catch{const t=document.createElement('textarea');t.value=msg.content;document.body.appendChild(t);t.select();document.execCommand('copy');document.body.removeChild(t);}
+      showToast('Copié !','success');
+    } else if(action==='forward') {
+      showForwardModal(msg);
+    } else if(action==='report') {
+      msg.reportedBy=currentUser.username; msg.reportedAt=new Date().toISOString();
+      await api('update',{sheet:'messages',id:msg.id,data:msg});
+      showToast('Message signalé aux admins','info');
+    }
+  }
+
+  function showForwardModal(msg) {
+    const bs=CONFIG.font_size,pc=CONFIG.primary_button_color,tc=CONFIG.text_color;
+    const myGroups=allGroups.filter(g=>g.groupMembers?.split(',').includes(currentUser.username));
+    const others=allUsers.filter(u=>u.username!==currentUser.username&&!u.suspended);
+    const modal=document.createElement('div');
+    modal.className='fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50';
+    const destinations=[
+      ...myGroups.map(g=>({id:g.groupId,label:`${g.groupEmoji} ${g.groupName}`})),
+      ...others.map(u=>{const cid=[currentUser.username,u.username].sort().join('_');return{id:cid,label:u.username+(u.isAdmin?' 👑':'')};})
+    ];
+    modal.innerHTML=`
+      <div class="rounded-2xl p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto" style="background:#1a1a1a;border:1px solid #333">
+        <div class="flex justify-between items-center mb-4">
+          <h3 class="font-bold text-white" style="font-size:${bs*1.2}px"><i class="fas fa-share mr-2"></i>Transférer</h3>
+          <button id="close-fwd" class="text-gray-400 hover:text-white"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="mb-4 p-3 rounded-lg" style="background:#262626;border-left:3px solid ${pc}">
+          <p style="font-size:${bs*0.9}px;color:${tc}">${msg.content}</p>
+        </div>
+        <div class="space-y-1">
+          ${destinations.map(d=>`
+            <button class="fwd-target w-full text-left px-4 py-3 rounded-xl hover:bg-white hover:bg-opacity-10 transition-colors" data-conv-id="${d.id}" style="background:#262626">
+              <span style="font-size:${bs}px;color:${tc}">${d.label}</span>
+            </button>`).join('')}
+          ${destinations.length===0?`<p style="color:#666;font-size:${bs*0.9}px">Aucune destination</p>`:''}
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    document.getElementById('close-fwd').onclick=()=>modal.remove();
+    modal.onclick=e=>{if(e.target===modal)modal.remove();};
+    modal.querySelectorAll('.fwd-target').forEach(b=>{
+      b.onclick=async()=>{
+        const fwdMsg={id:genId(),conversationId:b.dataset.convId,senderId:currentUser.username,senderName:currentUser.username,senderAvatar:currentUser.avatar||currentUser.username.charAt(0),content:`📤 Transféré:\n${msg.content}`,reactions:{},timestamp:new Date().toISOString()};
+        await api('create',{sheet:'messages',data:fwdMsg});
+        allMessages.push(fwdMsg);
+        showToast('Message transféré !','success'); modal.remove();
+      };
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // PARAMÈTRES
+  // ═══════════════════════════════════════════════════════════
+  function renderSettings() {
+    const bs=CONFIG.font_size,pc=CONFIG.primary_button_color,hc=CONFIG.header_color,bg=CONFIG.background_color,tc=CONFIG.text_color;
+    const app=document.getElementById('app');
+    app.innerHTML=`
+      <div class="h-full w-full flex flex-col" style="font-family:${CONFIG.font_family},Arial,sans-serif;background:${bg}">
+        <div class="header-bar flex items-center gap-3 p-4 text-white" style="background:${hc}">
+          <button id="back-btn" class="hover:bg-white hover:bg-opacity-20 p-2 rounded"><i class="fas fa-arrow-left" style="font-size:${bs}px"></i></button>
+          <h1 class="font-bold" style="font-size:${bs*1.4}px">Paramètres</h1>
+        </div>
+        <div class="flex-1 overflow-y-auto p-6">
+          <div class="max-w-xl mx-auto space-y-5">
+            <div class="rounded-2xl p-6" style="background:#1a1a1a;border:1px solid #333">
+              <h2 class="font-bold mb-4" style="font-size:${bs*1.1}px;color:${tc}"><i class="fas fa-user mr-2"></i>Profil</h2>
+              <div class="flex items-center gap-4 p-3 rounded-xl mb-4" style="background:#262626">
+                <div class="w-14 h-14 rounded-full flex items-center justify-center text-2xl text-white font-bold" style="background:${hc}">${currentUser.avatar||currentUser.username.charAt(0).toUpperCase()}</div>
+                <div>
+                  <div class="font-semibold" style="color:${tc};font-size:${bs}px">${currentUser.username}</div>
+                  <div style="color:#6b7280;font-size:${bs*0.8}px">${currentUser.isAdmin?'Administrateur':'Membre'}</div>
+                </div>
+              </div>
+              <div class="space-y-3">
+                <div>
+                  <label class="block mb-1 font-semibold" style="font-size:${bs}px;color:${tc}">Nouveau pseudo</label>
+                  <input type="text" id="new-username" class="w-full px-4 py-2 border rounded-xl" style="font-size:${bs}px;background:#262626;border-color:#444;color:${tc}" placeholder="${currentUser.username}">
+                </div>
+                <div>
+                  <label class="block mb-1 font-semibold" style="font-size:${bs}px;color:${tc}">Avatar (emoji)</label>
+                  <input type="text" id="new-avatar" class="w-full px-4 py-2 border rounded-xl text-center" style="font-size:${bs*2}px;background:#262626;border-color:#444;color:${tc}" placeholder="${currentUser.avatar||'😊'}" maxlength="2">
+                </div>
+                <button id="upd-profile-btn" class="primary-button px-6 py-2 rounded-xl text-white font-semibold" style="background:${pc};font-size:${bs}px"><i class="fas fa-save mr-2"></i>Mettre à jour</button>
+                <div id="profile-msg" class="hidden" style="font-size:${bs*0.85}px"></div>
+              </div>
+            </div>
+            <div class="rounded-2xl p-6" style="background:#1a1a1a;border:1px solid #333">
+              <h2 class="font-bold mb-4" style="font-size:${bs*1.1}px;color:${tc}"><i class="fas fa-lock mr-2"></i>Mot de passe</h2>
+              <div class="space-y-3">
+                ${[['current-pw','Actuel'],['new-pw','Nouveau'],['confirm-pw','Confirmer']].map(([id,lbl])=>`
+                  <div>
+                    <label class="block mb-1 font-semibold" style="font-size:${bs}px;color:${tc}">${lbl}</label>
+                    <div class="relative">
+                      <input type="password" id="${id}" class="w-full px-4 py-2 border rounded-xl pr-10" style="font-size:${bs}px;background:#262626;border-color:#444;color:${tc}">
+                      <button type="button" onclick="togglePw('${id}',this)" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"><i class="fas fa-eye" style="font-size:${bs}px"></i></button>
+                    </div>
+                  </div>`).join('')}
+                <button id="chg-pw-btn" class="primary-button px-6 py-2 rounded-xl text-white font-semibold" style="background:${pc};font-size:${bs}px"><i class="fas fa-key mr-2"></i>Changer</button>
+                <div id="pw-msg" class="hidden" style="font-size:${bs*0.85}px"></div>
+              </div>
+            </div>
+            <button id="logout-btn" class="w-full py-3 rounded-2xl text-white font-bold" style="background:#dc2626;font-size:${bs}px">
+              <i class="fas fa-sign-out-alt mr-2"></i>Se déconnecter
+            </button>
+          </div>
+        </div>
+      </div>`;
+
+    document.getElementById('back-btn').onclick=()=>{showSettings=false;renderChatInterface();};
+    document.getElementById('logout-btn').onclick=logout;
+    document.getElementById('upd-profile-btn').onclick=updateProfile;
+    document.getElementById('chg-pw-btn').onclick=changePassword;
+  }
+
+  async function updateProfile() {
+    if(isLoading) return;
+    const newU=document.getElementById('new-username').value.trim();
+    const newA=document.getElementById('new-avatar').value.trim();
+    const msgDiv=document.getElementById('profile-msg');
+    if(!newU&&!newA){showFieldMsg(msgDiv,'error','Aucun champ renseigné');return;}
+    if(newU&&allUsers.find(u=>u.username===newU&&u.id!==currentUser.id)){showFieldMsg(msgDiv,'error','Pseudo déjà pris');return;}
+
+    isLoading=true;
+    setBtnLoading('upd-profile-btn',true);
+    if(newU) currentUser.username=newU;
+    if(newA) currentUser.avatar=newA;
+    const idx=allUsers.findIndex(u=>u.id===currentUser.id);
+    if(idx>=0) allUsers[idx]=currentUser;
+    await api('update',{sheet:'users',id:currentUser.id,data:currentUser});
+    isLoading=false;
+    setBtnLoading('upd-profile-btn',false,'<i class="fas fa-save mr-2"></i>Mettre à jour');
+    showFieldMsg(msgDiv,'success','Profil mis à jour !');
+  }
+
+  async function changePassword() {
+    if(isLoading) return;
+    const cur=document.getElementById('current-pw').value;
+    const nw=document.getElementById('new-pw').value;
+    const cnf=document.getElementById('confirm-pw').value;
+    const msgDiv=document.getElementById('pw-msg');
+    if(!cur||!nw||!cnf){showFieldMsg(msgDiv,'error','Remplis tous les champs');return;}
+    if(cur!==currentUser.password){showFieldMsg(msgDiv,'error','Mot de passe actuel incorrect');return;}
+    if(nw!==cnf){showFieldMsg(msgDiv,'error','Ne correspondent pas');return;}
+
+    isLoading=true;
+    setBtnLoading('chg-pw-btn',true);
+    currentUser.password=nw;
+    const idx=allUsers.findIndex(u=>u.id===currentUser.id);
+    if(idx>=0) allUsers[idx]=currentUser;
+    await api('update',{sheet:'users',id:currentUser.id,data:currentUser});
+    isLoading=false;
+    setBtnLoading('chg-pw-btn',false,'<i class="fas fa-key mr-2"></i>Changer');
+    showFieldMsg(msgDiv,'success','Mot de passe changé !');
+    ['current-pw','new-pw','confirm-pw'].forEach(id=>document.getElementById(id).value='');
+  }
+
+  function showFieldMsg(div,type,msg) {
+    div.textContent=msg; div.style.color=type==='success'?'#16a34a':'#dc2626';
+    div.classList.remove('hidden'); setTimeout(()=>div.classList.add('hidden'),4000);
+  }
+
+  function logout() {
+    if(pollingInterval){clearInterval(pollingInterval);pollingInterval=null;}
+    currentUser=null; currentConversation=null; showSettings=false; showAdminPanel=false;
+    renderAuthScreen();
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // PANNEAU ADMIN
+  // ═══════════════════════════════════════════════════════════
+  function renderAdminPanel() {
+    const bs=CONFIG.font_size,pc=CONFIG.primary_button_color,hc=CONFIG.header_color,bg=CONFIG.background_color;
+    const app=document.getElementById('app');
+    app.innerHTML=`
+      <div class="h-full w-full flex flex-col" style="font-family:${CONFIG.font_family},Arial,sans-serif;background:${bg}">
+        <div class="header-bar flex items-center gap-3 p-4 text-white" style="background:${hc}">
+          <button id="back-btn" class="hover:bg-white hover:bg-opacity-20 p-2 rounded"><i class="fas fa-arrow-left" style="font-size:${bs}px"></i></button>
+          <h1 class="font-bold" style="font-size:${bs*1.4}px"><i class="fas fa-shield-alt mr-2"></i>Panneau Admin</h1>
+        </div>
+        <div class="flex-1 overflow-y-auto">
+          <div class="max-w-4xl mx-auto p-6">
+            <div class="flex gap-2 mb-6 overflow-x-auto pb-1">
+              ${[['users','Utilisateurs','fa-users'],['codes','Invitations','fa-key'],['groups','Groupes','fa-users-cog'],['danger','Zone critique','fa-radiation']].map(([tab,label,icon])=>`
+                <button class="admin-tab px-5 py-2.5 rounded-xl font-semibold whitespace-nowrap" data-tab="${tab}" style="background:${currentAdminTab===tab?pc:'#2d2d2d'};color:${currentAdminTab===tab?'#fff':'#999'};font-size:${bs*0.9}px">
+                  <i class="fas ${icon} mr-2"></i>${label}
+                </button>`).join('')}
+            </div>
+            <div id="admin-content" class="rounded-2xl p-6" style="background:#1a1a1a;border:1px solid #333"></div>
+          </div>
+        </div>
+      </div>`;
+    document.getElementById('back-btn').onclick=()=>{showAdminPanel=false;renderChatInterface();};
+    document.querySelectorAll('.admin-tab').forEach(t=>t.onclick=()=>switchAdminTab(t.dataset.tab));
+    switchAdminTab(currentAdminTab);
+  }
+
+  function switchAdminTab(tab) {
+    currentAdminTab=tab;
+    const pc=CONFIG.primary_button_color;
+    document.querySelectorAll('.admin-tab').forEach(t=>{
+      t.style.background=t.dataset.tab===tab?pc:'#2d2d2d';
+      t.style.color=t.dataset.tab===tab?'#fff':'#999';
+    });
+    const content=document.getElementById('admin-content');
+    const bs=CONFIG.font_size;
+    if(tab==='users') renderUsersTab(content,bs);
+    else if(tab==='codes') renderCodesTab(content,bs);
+    else if(tab==='groups') renderGroupsTab(content,bs);
+    else if(tab==='danger') renderDangerTab(content,bs);
+  }
+
+  function renderUsersTab(content,bs) {
+    const pc=CONFIG.primary_button_color,tc=CONFIG.text_color;
+    const firstAdmin=[...allUsers].filter(u=>u.isAdmin).sort((a,b)=>new Date(a.createdAt)-new Date(b.createdAt))[0];
+    const sorted=[...allUsers].sort((a,b)=>{
+      if(a.isAdmin&&!b.isAdmin)return -1; if(!a.isAdmin&&b.isAdmin)return 1;
+      if(!a.suspended&&b.suspended)return -1; if(a.suspended&&!b.suspended)return 1;
+      return 0;
+    });
+    content.innerHTML=`
+      <h2 class="font-bold mb-4" style="font-size:${bs*1.2}px;color:${tc}"><i class="fas fa-users mr-2"></i>Utilisateurs (${allUsers.length})</h2>
+      <div class="space-y-2">
+        ${sorted.map(user=>{
+          const isFirst=firstAdmin&&user.id===firstAdmin.id;
+          const sc=user.suspended?'#dc2626':(user.isAdmin?'#f59e0b':'#10b981');
+          const sl=user.suspended?'⛔ Suspendu':(user.isAdmin?'👑 Admin':'✓ Actif');
+          return `
+            <div class="flex items-center justify-between p-4 rounded-xl border" style="background:#262626;border-color:#333">
+              <div class="flex items-center gap-3 flex-1 min-w-0">
+                <div class="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg flex-shrink-0" style="background:${user.suspended?'#dc2626':pc}">${user.avatar||user.username.charAt(0).toUpperCase()}</div>
+                <div class="min-w-0">
+                  <div class="flex items-center gap-2 mb-1">
+                    <span class="font-semibold truncate" style="font-size:${bs}px;color:#e5e5e5">${user.username}</span>
+                    ${isFirst?`<span style="font-size:${bs*0.6}px;background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:3px;font-weight:bold;flex-shrink:0">INTOUCHABLE</span>`:''}
+                  </div>
+                  <span style="font-size:${bs*0.75}px;color:${sc};font-weight:600">${sl}</span>
+                </div>
+              </div>
+              ${!isFirst?`
+                <button class="user-actions-btn flex items-center gap-2 px-3 py-2 rounded-lg ml-2 flex-shrink-0" data-user-id="${user.id}" style="background:#333;color:#e5e5e5;font-size:${bs*0.85}px">
+                  Actions <i class="fas fa-chevron-down text-xs"></i>
+                </button>`:`<span style="font-size:${bs*0.7}px;color:#92400e;background:#fef3c7;padding:6px 10px;border-radius:8px;font-weight:600;flex-shrink:0">🛡️</span>`}
+            </div>`;
+        }).join('')}
+      </div>`;
+
+    document.querySelectorAll('.user-actions-btn').forEach(btn=>{
+      btn.onclick=e=>{
+        e.stopPropagation();
+        document.querySelectorAll('.user-dropdown-menu').forEach(m=>m.remove());
+        const user=allUsers.find(u=>u.id===btn.dataset.userId);if(!user)return;
+        const menu=document.createElement('div');
+        menu.className='user-dropdown-menu fixed rounded-xl py-2 z-50 border';
+        menu.style.cssText=`background:#2d2d2d;border-color:#444;min-width:195px;font-size:${bs*0.9}px`;
+        menu.innerHTML=[
+          !user.isAdmin?`<button data-action="promote" class="w-full px-4 py-2.5 text-left flex items-center gap-3 hover:bg-white hover:bg-opacity-10" style="color:#fbbf24"><i class="fas fa-crown w-4"></i>Promouvoir admin</button>`:`<button data-action="revoke" class="w-full px-4 py-2.5 text-left flex items-center gap-3 hover:bg-white hover:bg-opacity-10" style="color:#fbbf24"><i class="fas fa-user-minus w-4"></i>Révoquer admin</button>`,
+          !user.suspended?`<button data-action="suspend" class="w-full px-4 py-2.5 text-left flex items-center gap-3 hover:bg-white hover:bg-opacity-10" style="color:#fb923c"><i class="fas fa-ban w-4"></i>Suspendre</button>`:`<button data-action="unsuspend" class="w-full px-4 py-2.5 text-left flex items-center gap-3 hover:bg-white hover:bg-opacity-10" style="color:#4ade80"><i class="fas fa-check-circle w-4"></i>Réactiver</button>`,
+          `<button data-action="delete" class="w-full px-4 py-2.5 text-left flex items-center gap-3 hover:bg-red-900 hover:bg-opacity-30" style="color:#f87171"><i class="fas fa-trash w-4"></i>Supprimer</button>`
+        ].join('');
+        const rect=btn.getBoundingClientRect();
+        menu.style.top=`${rect.bottom+5}px`;
+        menu.style.left=`${Math.max(10,rect.right-195)}px`;
+        document.body.appendChild(menu);
+        menu.querySelectorAll('[data-action]').forEach(ab=>{
+          ab.onclick=async()=>{
+            menu.remove();
+            if(ab.dataset.action==='promote') await modifyUser(user.id,{isAdmin:true});
+            else if(ab.dataset.action==='revoke') await modifyUser(user.id,{isAdmin:false});
+            else if(ab.dataset.action==='suspend') await modifyUser(user.id,{suspended:true});
+            else if(ab.dataset.action==='unsuspend') await modifyUser(user.id,{suspended:false});
+            else if(ab.dataset.action==='delete') confirmDeleteUser(user.id);
+          };
+        });
+      };
+    });
+    document.addEventListener('click',()=>document.querySelectorAll('.user-dropdown-menu').forEach(m=>m.remove()),{once:true});
+  }
+
+  async function modifyUser(userId,changes) {
+    if(isLoading) return;
+    isLoading=true;
+    const user=allUsers.find(u=>u.id===userId);if(!user){isLoading=false;return;}
+    Object.assign(user,changes);
+    await api('update',{sheet:'users',id:userId,data:user});
+    isLoading=false;
+    showToast('Utilisateur modifié','success');
+    switchAdminTab('users');
+  }
+
+  function confirmDeleteUser(userId) {
+    const user=allUsers.find(u=>u.id===userId);if(!user)return;
+    const bs=CONFIG.font_size;
+    const modal=document.createElement('div');
+    modal.className='fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50';
+    modal.innerHTML=`
+      <div class="rounded-2xl p-8 max-w-md w-full mx-4" style="background:linear-gradient(135deg,#1a1a1a,#2d2d2d);border:2px solid #dc2626">
+        <div class="text-center mb-6">
+          <div class="w-20 h-20 bg-red-600 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
+            <i class="fas fa-exclamation-triangle text-white" style="font-size:${bs*2.5}px"></i>
+          </div>
+          <h3 class="font-black text-white mb-1" style="font-size:${bs*1.4}px">Supprimer le compte</h3>
+          <p class="text-red-400 font-semibold" style="font-size:${bs*0.9}px">${user.username}</p>
+        </div>
+        <p class="text-gray-400 text-center mb-6" style="font-size:${bs*0.85}px">Tous les messages seront supprimés. Action irréversible.</p>
+        <div class="flex gap-3">
+          <button id="cancel-del" class="flex-1 py-3 rounded-xl text-white font-bold" style="background:#4a4a4a">Annuler</button>
+          <button id="confirm-del" class="flex-1 py-3 rounded-xl text-white font-bold" style="background:linear-gradient(135deg,#dc2626,#7f1d1d)">Supprimer</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    document.getElementById('cancel-del').onclick=()=>modal.remove();
+    document.getElementById('confirm-del').onclick=async()=>{
+      isLoading=true;
+      const userMsgs=allMessages.filter(m=>m.senderId===user.username);
+      for(const m of userMsgs) await api('delete',{sheet:'messages',id:m.id});
+      await api('delete',{sheet:'users',id:userId});
+      allUsers=allUsers.filter(u=>u.id!==userId);
+      allMessages=allMessages.filter(m=>m.senderId!==user.username);
+      isLoading=false;
+      showToast('Compte supprimé','success'); modal.remove(); switchAdminTab('users');
+    };
+    modal.onclick=e=>{if(e.target===modal)modal.remove();};
+  }
+
+  function renderCodesTab(content,bs) {
+    const pc=CONFIG.primary_button_color,tc=CONFIG.text_color;
+    const unused=allCodes.filter(c=>!c.isUsed),used=allCodes.filter(c=>c.isUsed);
+    content.innerHTML=`
+      <div class="flex justify-between items-center mb-5">
+        <h2 class="font-bold" style="font-size:${bs*1.2}px;color:${tc}"><i class="fas fa-key mr-2"></i>Codes d'invitation</h2>
+        <button id="gen-code-btn" class="primary-button px-5 py-2 text-white rounded-xl font-semibold" style="background:${pc};font-size:${bs*0.9}px"><i class="fas fa-plus mr-1"></i>Générer</button>
+      </div>
+      <div id="new-code-alert" class="hidden mb-5 p-4 rounded-xl" style="background:#064e3b;border:1px solid #10b981">
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="text-sm mb-1" style="color:#6ee7b7;font-size:${bs*0.8}px">Code généré :</div>
+            <div class="font-mono font-black" id="new-code-display" style="font-size:${bs*2}px;color:#10b981"></div>
+          </div>
+          <div class="flex gap-2">
+            <button id="copy-new-code" class="px-3 py-2 rounded-lg text-white" style="background:${pc};font-size:${bs*0.85}px"><i class="fas fa-copy"></i></button>
+            <button id="close-code-alert" class="text-gray-400 hover:text-white p-2"><i class="fas fa-times"></i></button>
+          </div>
+        </div>
+      </div>
+      <h3 class="font-semibold mb-3" style="font-size:${bs}px;color:${tc}">Disponibles (${unused.length})</h3>
+      <div class="space-y-2 mb-6">
+        ${unused.length===0?`<p style="color:#666;font-size:${bs*0.9}px">Aucun code disponible</p>`:
+          unused.map(c=>`
+            <div class="flex items-center justify-between p-4 rounded-xl" style="background:#052e16;border:1px solid #166534">
+              <div>
+                <div class="font-mono font-bold" style="font-size:${bs*1.3}px;color:#4ade80">${c.code}</div>
+                <div style="font-size:${bs*0.75}px;color:#6b7280">${new Date(c.createdAt).toLocaleDateString('fr-FR')}</div>
+              </div>
+              <div class="flex gap-2">
+                <button class="copy-code px-3 py-2 rounded-lg text-white" data-code="${c.code}" style="background:${pc};font-size:${bs*0.85}px"><i class="fas fa-copy"></i></button>
+                <button class="del-code px-3 py-2 rounded-lg text-white" data-code-id="${c.id}" style="background:#dc2626;font-size:${bs*0.85}px"><i class="fas fa-trash"></i></button>
+              </div>
+            </div>`).join('')}
+      </div>
+      <h3 class="font-semibold mb-3" style="font-size:${bs}px;color:${tc}">Utilisés (${used.length})</h3>
+      <div class="space-y-2">
+        ${used.length===0?`<p style="color:#666;font-size:${bs*0.9}px">Aucun</p>`:
+          used.map(c=>`<div class="p-4 rounded-xl" style="background:#1a1a1a;border:1px solid #333"><span class="font-mono" style="font-size:${bs}px;color:#555;text-decoration:line-through">${c.code}</span></div>`).join('')}
+      </div>`;
+
+    document.getElementById('gen-code-btn').onclick=genCode;
+    document.querySelectorAll('.copy-code').forEach(b=>b.onclick=()=>copyToClipboard(b.dataset.code));
+    document.querySelectorAll('.del-code').forEach(b=>b.onclick=async()=>{
+      await api('delete',{sheet:'codes',id:b.dataset.codeId});
+      allCodes=allCodes.filter(c=>c.id!==b.dataset.codeId);
+      showToast('Code supprimé','success'); renderCodesTab(content,bs);
+    });
+  }
+
+  async function genCode() {
+    if(isLoading) return;
+    if(allCodes.length>=999){showToast('Limite 999 codes','error');return;}
+    isLoading=true;
+    setBtnLoading('gen-code-btn',true);
+    const code=Math.floor(100000+Math.random()*900000).toString();
+    const newCode={id:genId(),code,isUsed:false,createdAt:new Date().toISOString()};
+    await api('create',{sheet:'codes',data:newCode});
+    allCodes.push(newCode);
+    isLoading=false;
+    setBtnLoading('gen-code-btn',false,'<i class="fas fa-plus mr-1"></i>Générer');
+    const alert=document.getElementById('new-code-alert'),disp=document.getElementById('new-code-display');
+    if(alert&&disp){
+      disp.textContent=code; alert.classList.remove('hidden');
+      document.getElementById('copy-new-code').onclick=()=>copyToClipboard(code);
+      document.getElementById('close-code-alert').onclick=()=>alert.classList.add('hidden');
+      setTimeout(()=>alert.classList.add('hidden'),15000);
+    }
+  }
+
+  async function copyToClipboard(text) {
+    try{await navigator.clipboard.writeText(text);}catch{const t=document.createElement('textarea');t.value=text;document.body.appendChild(t);t.select();document.execCommand('copy');document.body.removeChild(t);}
+    showToast('Copié !','success');
+  }
+
+  function renderGroupsTab(content,bs) {
+    const pc=CONFIG.primary_button_color,tc=CONFIG.text_color;
+    content.innerHTML=`
+      <h2 class="font-bold mb-4" style="font-size:${bs*1.2}px;color:${tc}"><i class="fas fa-plus-circle mr-2"></i>Créer un groupe</h2>
+      <div class="space-y-4 mb-6">
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block mb-1 font-semibold" style="font-size:${bs}px;color:#e5e5e5">Emoji</label>
+            <input type="text" id="g-emoji" class="w-full px-4 py-2 border rounded-xl text-center" style="font-size:${bs*2}px;background:#262626;border-color:#444;color:#e5e5e5" placeholder="😊" maxlength="2">
+          </div>
+          <div>
+            <label class="block mb-1 font-semibold" style="font-size:${bs}px;color:#e5e5e5">Nom</label>
+            <input type="text" id="g-name" class="w-full px-4 py-2 border rounded-xl" style="font-size:${bs}px;background:#262626;border-color:#444;color:#e5e5e5" placeholder="Nom du groupe">
+          </div>
+        </div>
+        <label class="flex items-center gap-3 p-3 border rounded-xl cursor-pointer" style="border-color:#444;background:#262626">
+          <input type="checkbox" id="g-ann" class="w-5 h-5" style="accent-color:${pc}">
+          <div>
+            <div class="font-semibold" style="font-size:${bs}px;color:#e5e5e5">Groupe d'annonce</div>
+            <div style="font-size:${bs*0.8}px;color:#999">Seuls les admins peuvent écrire</div>
+          </div>
+        </label>
+        <div>
+          <label class="block mb-2 font-semibold" style="font-size:${bs}px;color:#e5e5e5">Membres</label>
+          <div class="space-y-1 max-h-44 overflow-y-auto border rounded-xl p-3" style="border-color:#444;background:#262626">
+            ${allUsers.filter(u=>!u.suspended).map(u=>`
+              <label class="flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-white hover:bg-opacity-5">
+                <input type="checkbox" class="g-member w-4 h-4" value="${u.username}" style="accent-color:${pc}">
+                <div class="w-7 h-7 rounded-full flex items-center justify-center text-white text-sm font-bold" style="background:${pc}">${u.avatar||u.username.charAt(0).toUpperCase()}</div>
+                <span style="font-size:${bs}px;color:#e5e5e5">${u.username}${u.isAdmin?' 👑':''}</span>
+              </label>`).join('')}
+          </div>
+        </div>
+        <button id="create-grp-btn" class="w-full py-3 text-white rounded-xl font-bold" style="background:${pc};font-size:${bs}px">
+          <i class="fas fa-plus-circle mr-2"></i>Créer
+        </button>
+        <div id="grp-msg" class="hidden" style="font-size:${bs*0.85}px"></div>
+      </div>
+      <h2 class="font-bold mt-6 mb-4" style="font-size:${bs*1.2}px;color:${tc}">Groupes (${allGroups.length})</h2>
+      <div class="space-y-3">
+        ${allGroups.length===0?`<p style="color:#666;font-size:${bs*0.9}px">Aucun groupe</p>`:
+          allGroups.map(g=>`
+            <div class="p-4 rounded-xl border" style="background:#262626;border-color:#333">
+              <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center gap-3">
+                  <span style="font-size:${bs*1.5}px">${g.groupEmoji}</span>
+                  <span class="font-bold" style="font-size:${bs*1.05}px;color:#e5e5e5">${g.groupName}</span>
+                  ${g.isAnnouncement?`<span style="font-size:${bs*0.6}px;background:#dc2626;color:#fff;padding:1px 5px;border-radius:4px">📢</span>`:''}
+                </div>
+                <button class="edit-grp-btn px-3 py-1.5 rounded-lg text-white font-semibold" data-group-id="${g.id}" style="background:${pc};font-size:${bs*0.8}px"><i class="fas fa-edit mr-1"></i>Modifier</button>
+              </div>
+              <p style="font-size:${bs*0.8}px;color:#555">${g.groupMembers?.split(',').length||0} membres : ${g.groupMembers||''}</p>
+            </div>`).join('')}
+      </div>`;
+
+    document.getElementById('create-grp-btn').onclick=createGroup;
+    document.querySelectorAll('.edit-grp-btn').forEach(b=>b.onclick=()=>showEditGroupModal(b.dataset.groupId));
+  }
+
+  async function createGroup() {
+    if(isLoading) return;
+    const emoji=document.getElementById('g-emoji').value.trim();
+    const name=document.getElementById('g-name').value.trim();
+    const isAnn=document.getElementById('g-ann').checked;
+    const members=[...document.querySelectorAll('.g-member:checked')].map(c=>c.value);
+    const msgDiv=document.getElementById('grp-msg');
+    const bs=CONFIG.font_size;
+    if(!emoji||!name){showFieldMsg(msgDiv,'error','Emoji et nom requis');return;}
+    if(!members.length){showFieldMsg(msgDiv,'error','Sélectionne au moins un membre');return;}
+    if(allGroups.length>=999){showFieldMsg(msgDiv,'error','Limite 999 groupes');return;}
+
+    if(!members.includes(currentUser.username)) members.push(currentUser.username);
+    isLoading=true;
+    setBtnLoading('create-grp-btn',true);
+    const groupId='group_'+Date.now();
+    const newGroup={id:genId(),groupId,groupName:name,groupEmoji:emoji,groupMembers:members.join(','),isAnnouncement:isAnn,createdAt:new Date().toISOString()};
+    await api('create',{sheet:'groups',data:newGroup});
+    allGroups.push(newGroup);
+    isLoading=false;
+    setBtnLoading('create-grp-btn',false,'<i class="fas fa-plus-circle mr-2"></i>Créer');
+    showToast(isAnn?'Canal d\'annonces créé !':'Groupe créé !','success');
+    renderGroupsTab(document.getElementById('admin-content'),bs);
+  }
+
+  function showEditGroupModal(groupId) {
+    const group=allGroups.find(g=>g.id===groupId);if(!group)return;
+    const bs=CONFIG.font_size,pc=CONFIG.primary_button_color,tc=CONFIG.text_color;
+    const currentMembers=group.groupMembers?.split(',')||[];
+    const modal=document.createElement('div');
+    modal.className='fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50';
+    modal.innerHTML=`
+      <div class="rounded-2xl p-6 max-w-xl w-full mx-4 max-h-[90vh] overflow-y-auto" style="background:#1a1a1a;border:1px solid #333">
+        <div class="flex justify-between items-center mb-4">
+          <h3 class="font-bold text-white" style="font-size:${bs*1.2}px"><i class="fas fa-edit mr-2"></i>Modifier le groupe</h3>
+          <button id="close-edit" class="text-gray-400 hover:text-white"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="space-y-4">
+          <div class="grid grid-cols-2 gap-4">
+            <div><label class="block mb-1 font-semibold" style="font-size:${bs}px;color:${tc}">Emoji</label><input type="text" id="e-emoji" class="w-full px-4 py-2 border rounded-xl text-center" style="font-size:${bs*2}px;background:#262626;border-color:#444;color:${tc}" value="${group.groupEmoji}" maxlength="2"></div>
+            <div><label class="block mb-1 font-semibold" style="font-size:${bs}px;color:${tc}">Nom</label><input type="text" id="e-name" class="w-full px-4 py-2 border rounded-xl" style="font-size:${bs}px;background:#262626;border-color:#444;color:${tc}" value="${group.groupName}"></div>
+          </div>
+          <label class="flex items-center gap-3 p-3 border rounded-xl cursor-pointer" style="border-color:#444;background:#262626">
+            <input type="checkbox" id="e-ann" class="w-5 h-5" ${group.isAnnouncement?'checked':''} style="accent-color:${pc}">
+            <div><div class="font-semibold" style="font-size:${bs}px;color:${tc}">Groupe d'annonce</div></div>
+          </label>
+          <div>
+            <label class="block mb-2 font-semibold" style="font-size:${bs}px;color:${tc}">Membres</label>
+            <div class="space-y-1 max-h-44 overflow-y-auto border rounded-xl p-3" style="border-color:#444;background:#262626">
+              ${allUsers.filter(u=>!u.suspended).map(u=>`
+                <label class="flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-white hover:bg-opacity-5">
+                  <input type="checkbox" class="e-member w-4 h-4" value="${u.username}" ${currentMembers.includes(u.username)?'checked':''} style="accent-color:${pc}">
+                  <div class="w-7 h-7 rounded-full flex items-center justify-center text-white text-sm font-bold" style="background:${pc}">${u.avatar||u.username.charAt(0).toUpperCase()}</div>
+                  <span style="font-size:${bs}px;color:${tc}">${u.username}</span>
+                </label>`).join('')}
+            </div>
+          </div>
+          <div class="flex gap-3">
+            <button id="save-grp-edit" class="flex-1 py-3 rounded-xl text-white font-bold" style="background:${pc}"><i class="fas fa-save mr-2"></i>Enregistrer</button>
+            <button id="del-grp-edit" class="px-5 py-3 rounded-xl text-white font-bold" style="background:#dc2626"><i class="fas fa-trash mr-2"></i>Supprimer</button>
+          </div>
+          <div id="edit-grp-msg" class="hidden" style="font-size:${bs*0.85}px"></div>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    document.getElementById('close-edit').onclick=()=>modal.remove();
+    modal.onclick=e=>{if(e.target===modal)modal.remove();};
+    document.getElementById('save-grp-edit').onclick=async()=>{
+      const emoji=document.getElementById('e-emoji').value.trim();
+      const name=document.getElementById('e-name').value.trim();
+      const isAnn=document.getElementById('e-ann').checked;
+      const members=[...document.querySelectorAll('.e-member:checked')].map(c=>c.value);
+      const msgDiv=document.getElementById('edit-grp-msg');
+      if(!emoji||!name||!members.length){showFieldMsg(msgDiv,'error','Remplis tous les champs');return;}
+      Object.assign(group,{groupName:name,groupEmoji:emoji,groupMembers:members.join(','),isAnnouncement:isAnn});
+      await api('update',{sheet:'groups',id:group.id,data:group});
+      showToast('Groupe mis à jour','success'); modal.remove(); switchAdminTab('groups');
+    };
+    document.getElementById('del-grp-edit').onclick=async()=>{
+      if(!confirm(`Supprimer "${group.groupName}" ?`)) return;
+      const grpMsgs=allMessages.filter(m=>m.conversationId===group.groupId);
+      for(const m of grpMsgs) await api('delete',{sheet:'messages',id:m.id});
+      await api('delete',{sheet:'groups',id:group.id});
+      allGroups=allGroups.filter(g=>g.id!==group.id);
+      allMessages=allMessages.filter(m=>m.conversationId!==group.groupId);
+      showToast('Groupe supprimé','success'); modal.remove(); switchAdminTab('groups');
+    };
+  }
+
+  function renderDangerTab(content,bs) {
+    const pc=CONFIG.primary_button_color,tc=CONFIG.text_color;
+    const otherAdmins=allUsers.filter(u=>u.isAdmin&&u.id!==currentUser.id);
+    content.innerHTML=`
+      <div class="border-4 border-red-600 rounded-2xl p-6 mb-5" style="background:linear-gradient(135deg,#7f1d1d,#450a0a)">
+        <div class="flex items-center gap-4">
+          <div class="w-16 h-16 rounded-full flex items-center justify-center flex-shrink-0" style="background:#dc2626">
+            <i class="fas fa-exclamation-triangle text-white" style="font-size:${bs*2}px"></i>
+          </div>
+          <div>
+            <h2 class="font-black text-white" style="font-size:${bs*1.4}px">⚠️ ZONE À RISQUE</h2>
+            <p class="text-red-300" style="font-size:${bs*0.85}px">Actions irréversibles. Réfléchis.</p>
+          </div>
+        </div>
+      </div>
+      <div class="rounded-2xl p-6 mb-5 border-2" style="background:#1a1a1a;border-color:#f59e0b">
+        <h3 class="font-bold mb-3 flex items-center gap-2" style="font-size:${bs*1.1}px;color:#fbbf24"><i class="fas fa-crown"></i>Transférer l'administration</h3>
+        ${otherAdmins.length>0?`
+          <select id="transfer-select" class="w-full px-4 py-2 border rounded-xl mb-3" style="background:#262626;border-color:#444;color:#e5e5e5;font-size:${bs}px">
+            <option value="">-- Choisir un admin --</option>
+            ${otherAdmins.map(a=>`<option value="${a.id}">${a.username}</option>`).join('')}
+          </select>
+          <button id="transfer-btn" class="px-6 py-2.5 rounded-xl font-bold text-white" style="background:linear-gradient(135deg,#f59e0b,#d97706);font-size:${bs}px">
+            <i class="fas fa-exchange-alt mr-2"></i>Transférer
+          </button>`:`<p class="text-red-400" style="font-size:${bs*0.9}px">Aucun autre admin disponible.</p>`}
+      </div>
+      <div class="rounded-2xl p-6 border-4" style="background:linear-gradient(135deg,#450a0a,#1a0404);border-color:#dc2626">
+        <h3 class="font-black mb-4 text-red-500 flex items-center gap-2" style="font-size:${bs*1.2}px"><i class="fas fa-radiation"></i>RÉINITIALISER TOUT</h3>
+        <ul class="space-y-1 mb-5 text-red-400" style="font-size:${bs*0.85}px">
+          <li>✗ ${allUsers.length} utilisateur(s)</li>
+          <li>✗ ${allMessages.length} message(s)</li>
+          <li>✗ ${allGroups.length} groupe(s)</li>
+          <li>✗ ${allCodes.length} code(s)</li>
+        </ul>
+        <div class="mb-4">
+          <label class="block mb-2 font-bold text-red-300" style="font-size:${bs*0.9}px">Tape "SUPPRIMER TOUT" pour confirmer :</label>
+          <input type="text" id="reset-input" class="w-full px-4 py-3 border-2 rounded-xl text-center font-bold" style="font-size:${bs}px;background:#262626;border-color:#dc2626;color:#fca5a5" placeholder="SUPPRIMER TOUT">
+        </div>
+        <button id="reset-btn" class="w-full py-4 rounded-xl font-black text-white" style="background:linear-gradient(135deg,#dc2626,#7f1d1d);font-size:${bs}px;opacity:0.4" disabled>
+          <i class="fas fa-skull-crossbones mr-2"></i>TOUT SUPPRIMER
+        </button>
+      </div>`;
+
+    document.getElementById('transfer-btn')?.addEventListener('click',async()=>{
+      const sel=document.getElementById('transfer-select');
+      if(!sel.value){showToast('Sélectionne un admin','error');return;}
+      const idx=allUsers.findIndex(u=>u.id===currentUser.id);
+      if(idx>=0){allUsers[idx].isAdmin=false;await api('update',{sheet:'users',id:currentUser.id,data:allUsers[idx]});}
+      Object.assign(currentUser,{isAdmin:false});
+      showToast('Administration transférée','success'); showAdminPanel=false; renderChatInterface();
+    });
+
+    const ri=document.getElementById('reset-input'),rb=document.getElementById('reset-btn');
+    ri.oninput=()=>{const ok=ri.value.toUpperCase()==='SUPPRIMER TOUT';rb.disabled=!ok;rb.style.opacity=ok?'1':'0.4';};
+    rb.onclick=async()=>{
+      isLoading=true;
+      for(const m of allMessages) await api('delete',{sheet:'messages',id:m.id});
+      for(const g of allGroups) await api('delete',{sheet:'groups',id:g.id});
+      for(const c of allCodes) await api('delete',{sheet:'codes',id:c.id});
+      for(const u of allUsers) await api('delete',{sheet:'users',id:u.id});
+      allMessages=[]; allGroups=[]; allCodes=[]; allUsers=[];
+      isLoading=false; currentUser=null; currentConversation=null; showAdminPanel=false;
+      showToast('Système réinitialisé','info'); renderAuthScreen();
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // UTILITAIRES
+  // ═══════════════════════════════════════════════════════════
+  function setBtnLoading(id, loading, resetHtml='') {
+    const btn=document.getElementById(id);if(!btn)return;
+    btn.disabled=loading;
+    btn.innerHTML=loading?'<div class="loading-spinner mx-auto" style="width:20px;height:20px"></div>':resetHtml;
+  }
+
+  function showToast(message, type='info') {
+    const colors={success:'#16a34a',error:'#dc2626',info:CONFIG.primary_button_color};
+    const icons={success:'fa-check-circle',error:'fa-times-circle',info:'fa-info-circle'};
+    const toast=document.createElement('div');
+    toast.className='fixed bottom-5 right-5 px-5 py-3 rounded-xl shadow-2xl text-white font-semibold z-50 flex items-center gap-2 scale-in';
+    toast.style.cssText=`background:${colors[type]||colors.info};font-size:${CONFIG.font_size}px;max-width:90vw`;
+    toast.innerHTML=`<i class="fas ${icons[type]||icons.info}"></i>${message}`;
+    document.body.appendChild(toast);
+    setTimeout(()=>{toast.style.cssText+=';opacity:0;transform:translateY(8px);transition:all 0.3s';setTimeout(()=>toast.remove(),300);},3000);
+  }
+
+  // ─── Démarrage ────────────────────────────────────────────
+  initApp();
+  </script>
+ </body>
+</html>
