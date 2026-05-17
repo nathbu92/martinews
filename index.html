@@ -466,15 +466,15 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 </div>
 
 <script>
-const API='https://script.google.com/macros/s/AKfycbwObAT6ukSB_NPR_rj2472MGicuKlm1xOI7go3-SeGAQwONE7J581jKhq3Wwpe2uVwHyw/exec';
-const POLL=5000; // garde pour actus/groupes/users
+const API='https://script.google.com/macros/s/AKfycbz4q_MQKREd7dGy_4TqZJLjYD38NNP0d59FhItc7TDsc4iGK-7ZOVI8C0HQJKL-ciCzUA/exec';
+const POLL=5000;
 const EMOJIS=['👍','❤️','😂','😮','😢','🔥','👏','🎵'];
 
 /* ══ SUPABASE CONFIG ══ */
 const SB_URL='https://hikwkdjzwedehijibefz.supabase.co';
 const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhpa3drZGp6d2VkZWhpamliZWZ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg5Njk2OTIsImV4cCI6MjA5NDU0NTY5Mn0.S159u9a2DhQr6maMLyQWvIIZwqrYW2mw3Zp49Ef9Fzo';
-let sb=null; // client Supabase
-let mpChannel=null, grpChannel=null; // canaux Realtime
+let sb=null;
+let mpChannel=null,grpChannel=null;
 
 let ME=null,users=[],groups=[],curTab='news',curMp=null,curGrp=null;
 let replyState={mp:null,grp:null},editingMsg=null;
@@ -527,7 +527,7 @@ async function doLogin(){
       if(e.startsWith('SUSPENDED:'))aMsg(msg,'error','⚠️ Compte suspendu : '+e.replace('SUSPENDED:',''));
       else aMsg(msg,'error',e||'Erreur inconnue.');
     }
-  }catch(e){aMsg(msg,'error','Serveur inaccessible. Héberge le fichier en ligne (GitHub Pages).');}
+  }catch(e){aMsg(msg,'error','Serveur inaccessible.');}
   btnLoad(btn,false);
 }
 
@@ -545,7 +545,7 @@ async function doRegister(){
       aMsg(msg,'success','Compte créé ! Chargement…');
       setTimeout(()=>{document.getElementById('authScreen').classList.remove('visible');showApp();},500);
     } else aMsg(msg,'error',d.error||'Erreur inconnue.');
-  }catch(e){aMsg(msg,'error','Serveur inaccessible. Héberge le fichier en ligne (GitHub Pages).');}
+  }catch(e){aMsg(msg,'error','Serveur inaccessible.');}
   btnLoad(btn,false);
 }
 
@@ -573,7 +573,7 @@ async function showApp(){
   initAppUI();
   injectManifest();
   initNotifications();
-  setInterval(poll,POLL); // garde pour actus/users/groupes
+  setInterval(poll,POLL);
 }
 
 /* ══ SUPABASE CLIENT ══ */
@@ -791,9 +791,7 @@ async function sendMp(){
     const row={sender_id:ME.id,sender_login:ME.login,receiver_id:curMp.id,content:c};
     if(rep){row.reply_to_id=rep.id;row.reply_preview=rep.preview;}
     const data=await sbInsert('messages_mp',row);
-    // Afficher immédiatement côté expéditeur
     appendMsgs([sbRowToMsg(data,'mp')],'mp',getMpId(ME.id,curMp.id));
-    // Push FCM via Apps Script (pas bloquant)
     api({action:'push_fcm',target_id:curMp.id,title:ME.login,body:c.substring(0,100),tag:'mp'}).catch(()=>{});
   }catch(e){toast('Erreur envoi','error');console.error(e);}
   btn.classList.remove('sending');btn.disabled=false;
@@ -832,7 +830,7 @@ function subscribeGrp(groupId){
       event:'INSERT',schema:'public',table:'messages_grp',
       filter:`group_id=eq.${groupId}`
     },payload=>{
-      if(payload.new.sender_id===ME.id)return; // déjà affiché
+      if(payload.new.sender_id===ME.id)return;
       const msg=sbRowToMsg(payload.new,'grp');
       if(curGrp&&curGrp.id===groupId){
         appendMsgs([msg],'grp',groupId);
@@ -876,7 +874,6 @@ async function sendGrp(){
     if(rep){row.reply_to_id=rep.id;row.reply_preview=rep.preview;}
     const data=await sbInsert('messages_grp',row);
     appendMsgs([sbRowToMsg(data,'grp')],'grp',curGrp.id);
-    // Push FCM aux membres (pas bloquant)
     const members=(curGrp.members||[]).filter(m=>m!==ME.id);
     members.forEach(mid=>api({action:'push_fcm',target_id:mid,title:ME.login+' ('+curGrp.name+')',body:c.substring(0,100),tag:'grp'}).catch(()=>{}));
   }catch(e){toast('Erreur envoi','error');console.error(e);}
@@ -1236,48 +1233,26 @@ async function runPurge(){
   if(el)el.textContent='Purge en cours…';
   try{
     let totalDeleted=0;
-
-    // ── Purge MP : garder 100 derniers par paire sender/receiver ──
-    const {data:mpConvs}=await sb.from('messages_mp')
-      .select('sender_id,receiver_id')
-      .order('created_at',{ascending:false});
-
-    // Identifier les paires uniques
+    const {data:mpConvs}=await sb.from('messages_mp').select('sender_id,receiver_id').order('created_at',{ascending:false});
     const mpPairs=new Set();
-    (mpConvs||[]).forEach(r=>{
-      const key=[r.sender_id,r.receiver_id].sort().join('|');
-      mpPairs.add(key);
-    });
-
+    (mpConvs||[]).forEach(r=>{const key=[r.sender_id,r.receiver_id].sort().join('|');mpPairs.add(key);});
     for(const pair of mpPairs){
       const [a,b]=pair.split('|');
-      // Récupérer tous les IDs triés par date desc
-      const {data:msgs}=await sb.from('messages_mp')
-        .select('id')
-        .or(`and(sender_id.eq.${a},receiver_id.eq.${b}),and(sender_id.eq.${b},receiver_id.eq.${a})`)
-        .order('created_at',{ascending:false});
+      const {data:msgs}=await sb.from('messages_mp').select('id').or(`and(sender_id.eq.${a},receiver_id.eq.${b}),and(sender_id.eq.${b},receiver_id.eq.${a})`).order('created_at',{ascending:false});
       if(!msgs||msgs.length<=100)continue;
       const toDelete=msgs.slice(100).map(m=>m.id);
       const {error}=await sb.from('messages_mp').delete().in('id',toDelete);
       if(!error)totalDeleted+=toDelete.length;
     }
-
-    // ── Purge Groupes : garder 100 derniers par group_id ──
-    const {data:grpIds}=await sb.from('messages_grp')
-      .select('group_id');
+    const {data:grpIds}=await sb.from('messages_grp').select('group_id');
     const uniqueGrps=[...new Set((grpIds||[]).map(r=>r.group_id))];
-
     for(const gid of uniqueGrps){
-      const {data:msgs}=await sb.from('messages_grp')
-        .select('id')
-        .eq('group_id',gid)
-        .order('created_at',{ascending:false});
+      const {data:msgs}=await sb.from('messages_grp').select('id').eq('group_id',gid).order('created_at',{ascending:false});
       if(!msgs||msgs.length<=100)continue;
       const toDelete=msgs.slice(100).map(m=>m.id);
       const {error}=await sb.from('messages_grp').delete().in('id',toDelete);
       if(!error)totalDeleted+=toDelete.length;
     }
-
     toast(`Purge terminée — ${totalDeleted} messages supprimés ✓`,'success');
     loadPurgeStats();
   }catch(e){
@@ -1297,21 +1272,10 @@ async function poll(){
   await pollNotifications();
 }
 
-
-
-
-
-
-
-
-
-
-
-
 /* ══ NOTIFICATIONS ══ */
 let notifGranted=false;
-let lastSeenMp={};   // conv_id -> last timestamp
-let lastSeenGrp={};  // group_id -> last timestamp
+let lastSeenMp={};
+let lastSeenGrp={};
 
 /* ══ CONFIG FCM ══ */
 const FB_CONFIG={
@@ -1329,42 +1293,14 @@ let fcmToken=null;
 async function initNotifications(){
   if(!('Notification' in window)||!('serviceWorker' in navigator))return;
 
-  // Demander permission
   let perm=Notification.permission;
   if(perm==='default') perm=await Notification.requestPermission();
   if(perm!=='granted')return;
   notifGranted=true;
 
-  // Injecter le Service Worker FCM (firebase-messaging-sw.js inline via blob)
-  const swCode=`
-importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');
-firebase.initializeApp(${JSON.stringify(FB_CONFIG)});
-const messaging=firebase.messaging();
-messaging.onBackgroundMessage(payload=>{
-  const {title,body,tag}=payload.data||{};
-  self.registration.showNotification(title||'WebRadio',{
-    body:body||'',
-    icon:'https://raw.githubusercontent.com/nathbu92/webradio-lesmartinets/main/favicon.ico',
-    badge:'https://raw.githubusercontent.com/nathbu92/webradio-lesmartinets/main/favicon.ico',
-    tag:tag||'webradio',
-    renotify:true,
-    vibrate:[200,100,200]
-  });
-});
-self.addEventListener('notificationclick',e=>{
-  e.notification.close();
-  e.waitUntil(clients.matchAll({type:'window',includeUncontrolled:true}).then(cs=>{
-    if(cs.length){cs[0].focus();return;}
-    clients.openWindow(self.location.origin);
-  }));
-});`;
-
-  const swBlob=new Blob([swCode],{type:'application/javascript'});
-  const swUrl=URL.createObjectURL(swBlob);
-
   try{
-    const reg=await navigator.serviceWorker.register(swUrl,{scope:'./'});
+    // ── CORRECTION : vrai fichier SW au lieu d'un blob URL ──
+    const reg=await navigator.serviceWorker.register('/firebase-messaging-sw.js');
     window._swReg=reg;
     await navigator.serviceWorker.ready;
 
@@ -1378,13 +1314,12 @@ self.addEventListener('notificationclick',e=>{
     if(VAPID_KEY){
       fcmToken=await messaging.getToken({vapidKey:VAPID_KEY,serviceWorkerRegistration:reg});
       if(fcmToken){
-        // Envoyer le token au backend pour l'associer à ME.id
         await api({action:'save_fcm_token',user_id:ME.id,token:fcmToken});
         console.log('FCM token enregistré');
       }
     }
 
-    // Notifs quand app au PREMIER PLAN
+    // Notifs quand app au premier plan
     messaging.onMessage(payload=>{
       const {title,body,tag}=payload.data||{};
       showNotifBanner(title||'WebRadio',body||'',tag);
@@ -1404,7 +1339,7 @@ function loadScript(src){
   });
 }
 
-// Fallback SW sans FCM (pas de VAPID ou erreur)
+// Fallback SW sans FCM
 function registerSwBasic(){
   const swCode=`
 self.addEventListener('message',e=>{
@@ -1432,7 +1367,6 @@ self.addEventListener('notificationclick',e=>{
 
 function sendNotif(title,body,tag='msg'){
   showNotifBanner(title,body);
-  // Electron → notif native via IPC (marche app minimisée dans systray)
   if(window.electronAPI){
     window.electronAPI.showNotification(title,body,tag);
     return;
@@ -1447,7 +1381,6 @@ function sendNotif(title,body,tag='msg'){
 }
 
 function showNotifBanner(title,body){
-  // Supprimer l'ancien si existe
   const old=document.getElementById('notifBanner');if(old)old.remove();
   const el=document.createElement('div');
   el.className='notif-banner';el.id='notifBanner';
@@ -1459,11 +1392,10 @@ function showNotifBanner(title,body){
 
 async function pollNotifications(){
   if(!ME)return;
-  // Vérifier nouveaux MP de tous les users
   for(const u of users.filter(u2=>u2.id!==ME.id)){
     const cid=getMpId(ME.id,u.id);
     const since=lastSeenMp[cid]||null;
-    if(!since)continue; // pas encore ouvert cette conv, on initialise
+    if(!since)continue;
     const p={action:'get_mp',user_id:ME.id,target_id:u.id,since};
     try{
       const d=await api(p);
@@ -1472,7 +1404,6 @@ async function pollNotifications(){
         if(newMsgs.length){
           const last=newMsgs[newMsgs.length-1];
           lastSeenMp[cid]=last.created_at;
-          // Notifier seulement si ce n'est pas la conv ouverte
           if(!curMp||curMp.id!==u.id){
             sendNotif(u.login, last.content.substring(0,80),'mp-'+cid);
           }
@@ -1480,7 +1411,6 @@ async function pollNotifications(){
       }
     }catch(e){}
   }
-  // Vérifier nouveaux messages groupes non ouverts
   for(const g of groups){
     const since=lastSeenGrp[g.id]||null;
     if(!since)continue;
@@ -1501,7 +1431,6 @@ async function pollNotifications(){
   }
 }
 
-// Init lastSeen quand on ouvre une conv
 function initLastSeen(type,id,messages){
   if(!messages||!messages.length)return;
   const last=messages[messages.length-1].created_at;
