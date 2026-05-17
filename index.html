@@ -568,6 +568,9 @@ async function showApp(){
     setLoadMsg('Presque prêt…');
     await Promise.all([loadNews(),loadGroups()]);
   } catch(e){console.warn('Init partielle:',e);}
+  const nowIso=new Date().toISOString();
+  users.filter(u=>u.id!==ME.id).forEach(u=>{const cid=getMpId(ME.id,u.id);if(!lastSeenMp[cid])lastSeenMp[cid]=nowIso;});
+  groups.forEach(g=>{if(!lastSeenGrp[g.id])lastSeenGrp[g.id]=nowIso;});
   hideLoad();
   document.getElementById('appScreen').classList.add('visible');
   initAppUI();
@@ -1300,7 +1303,7 @@ async function initNotifications(){
 
   try{
     // ── CORRECTION : vrai fichier SW au lieu d'un blob URL ──
-    const reg=await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+    const reg=await navigator.serviceWorker.register('/martinews/firebase-messaging-sw.js');
     window._swReg=reg;
     await navigator.serviceWorker.ready;
 
