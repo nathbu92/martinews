@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>WebRadio — Chat</title>
+<meta name="theme-color" content="#e63946">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="WebRadio">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" id="manifestLink">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -132,6 +138,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .rc{font-size:10px;color:var(--muted);}
 .yt-embed{margin-top:8px;border-radius:8px;overflow:hidden;max-width:320px;}
 .yt-embed iframe{width:100%;aspect-ratio:16/9;border:none;display:block;}
+.free-iframe{margin-top:8px;border-radius:8px;overflow:hidden;width:100%;max-width:480px;background:var(--surface2);border:1px solid var(--border);}
+.free-iframe iframe{width:100%;height:280px;border:none;display:block;}
+.notif-banner{position:fixed;top:12px;right:12px;background:var(--surface);border:1px solid var(--accent);border-radius:6px;padding:10px 14px;font-size:13px;font-family:'DM Mono',monospace;z-index:3000;animation:slideUp .2s ease;box-shadow:0 4px 16px rgba(0,0,0,.5);max-width:280px;cursor:pointer;display:flex;align-items:flex-start;gap:10px;}
+.notif-banner .nb-icon{font-size:20px;flex-shrink:0;}
+.notif-banner .nb-body{}
+.notif-banner .nb-title{font-weight:600;color:var(--text);margin-bottom:2px;}
+.notif-banner .nb-msg{color:var(--muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;}
 .ctx-menu{position:fixed;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:4px;z-index:1000;min-width:160px;box-shadow:0 8px 32px rgba(0,0,0,.5);animation:fadeIn .1s ease;}
 .ctx-item{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:13px;transition:background .1s;}
 .ctx-item:hover{background:var(--surface2);}
@@ -330,6 +343,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
           <button class="fmt-btn" onclick="iFmt('mp','_','_')"><i>I</i></button>
           <button class="fmt-btn" onclick="iFmt('mp','`','`')">{ }</button>
           <button class="fmt-btn" onclick="pYtb('mp')">▶ YTB</button>
+          <button class="fmt-btn" onclick="pIframe('mp')">🔗 iframe</button>
         </div>
         <div class="input-row">
           <textarea class="input-box" id="mpBox" placeholder="Message… (Maj+Entrée pour saut de ligne)" rows="1" onkeydown="hKey(event,'mp')" oninput="aRes(this)"></textarea>
@@ -353,6 +367,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
           <button class="fmt-btn" onclick="iFmt('grp','_','_')"><i>I</i></button>
           <button class="fmt-btn" onclick="iFmt('grp','`','`')">{ }</button>
           <button class="fmt-btn" onclick="pYtb('grp')">▶ YTB</button>
+          <button class="fmt-btn" onclick="pIframe('grp')">🔗 iframe</button>
         </div>
         <div class="input-row">
           <textarea class="input-box" id="grpBox" placeholder="Message… (Maj+Entrée pour saut de ligne)" rows="1" onkeydown="hKey(event,'grp')" oninput="aRes(this)"></textarea>
@@ -445,7 +460,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 </div>
 
 <script>
-const API='https://script.google.com/macros/s/AKfycbyau_cJWZ99R-4npluj-ZsTumZaew1ffJf06STpCUPi5vBwdY6EEGD_MQUf6lkEaH6lQQ/exec';
+const API='https://script.google.com/macros/s/AKfycbz4q_MQKREd7dGy_4TqZJLjYD38NNP0d59FhItc7TDsc4iGK-7ZOVI8C0HQJKL-ciCzUA/exec';
 const POLL=5000;
 const EMOJIS=['👍','❤️','😂','😮','😢','🔥','👏','🎵'];
 let ME=null,users=[],groups=[],curTab='news',curMp=null,curGrp=null;
@@ -541,6 +556,8 @@ async function showApp(){
   hideLoad();
   document.getElementById('appScreen').classList.add('visible');
   initAppUI();
+  injectManifest();
+  initNotifications();
   setInterval(poll,POLL);
 }
 
@@ -680,7 +697,7 @@ async function loadMpMsgs(polling=false){
   if(polling&&mpSince[cid])p.since=mpSince[cid];
   if(!polling)document.getElementById('mpMessages').innerHTML=skeletons(4);
   const d=await api(p);if(!d.success)return;
-  if(d.messages.length){mpSince[cid]=d.messages[d.messages.length-1].created_at;if(polling)appendMsgs(d.messages,'mp',cid);else renderMsgs(d.messages,'mp',cid);}
+  if(d.messages.length){mpSince[cid]=d.messages[d.messages.length-1].created_at;if(polling)appendMsgs(d.messages,'mp',cid);else{renderMsgs(d.messages,'mp',cid);initLastSeen('mp',cid,d.messages);}}
   else if(!polling)document.getElementById('mpMessages').innerHTML='<div class="empty">Commencez la conversation !</div>';
 }
 
@@ -724,7 +741,7 @@ async function loadGrpMsgs(polling=false){
   if(polling&&grpSince[curGrp.id])p.since=grpSince[curGrp.id];
   if(!polling)document.getElementById('grpMessages').innerHTML=skeletons(4);
   const d=await api(p);if(!d.success)return;
-  if(d.messages.length){grpSince[curGrp.id]=d.messages[d.messages.length-1].created_at;if(polling)appendMsgs(d.messages,'grp',curGrp.id);else renderMsgs(d.messages,'grp',curGrp.id);}
+  if(d.messages.length){grpSince[curGrp.id]=d.messages[d.messages.length-1].created_at;if(polling)appendMsgs(d.messages,'grp',curGrp.id);else{renderMsgs(d.messages,'grp',curGrp.id);initLastSeen('grp',curGrp.id,d.messages);}}
   else if(!polling)document.getElementById('grpMessages').innerHTML='<div class="empty">Aucun message.</div>';
 }
 
@@ -769,14 +786,15 @@ function buildMsg(msg,type,cid){
   const isMine=msg.sender_id===ME.id,sc=isMine?ME.avatar_color:uColor(msg.sender_id),sl=msg.sender_login||'?';
   const repH=msg.reply_to_id?`<div class="reply-prev"><div class="reply-author">↩ ${(msg.reply_preview||'').split(':')[0]}</div><div>${(msg.reply_preview||'').split(':').slice(1).join(':').substring(0,60)}</div></div>`:'';
   const ytH=extractYt(msg.content);
-  const cleanTxt=msg.content.replace(/https?:\/\/(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/)[^\s]+/g,'').trim();
+  const iframeH=extractIframes(msg.content);
+  const cleanTxt=msg.content.replace(/https?:\/\/(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/)[^\s]+/g,'').replace(/\[iframe:[^\]]+\]/g,'').trim();
   const md=JSON.stringify(msg).replace(/"/g,'&quot;');
   w.innerHTML=`
     ${!isMine?`<div class="msg-av-wrap">${mkAv(sl,sc,32)}</div>`:''}
     <div class="msg-bwrap">
       ${!isMine?`<div class="msg-sender">${sl}</div>`:''}
       <div class="msg-bubble" oncontextmenu="showCtx(event,'${type}','${cid}',${md})" onmousedown="startLP(event,'${type}','${cid}',${md})">
-        ${repH}<div class="msg-content">${renderContent(cleanTxt)}</div>${ytH}
+        ${repH}<div class="msg-content">${renderContent(cleanTxt)}</div>${ytH}${iframeH}
       </div>
       <div class="msg-reactions" id="r-${msg.id}"></div>
       <div class="msg-time">${fmtTime(msg.created_at)}${msg.edited_at?` <span class="msg-edited">· modifié</span>`:''}</div>
@@ -1035,7 +1053,252 @@ function promptNewMp(){
   if(!u){toast('Introuvable','error');return;}switchTab('mp');openMp(u);
 }
 
-async function poll(){if(curMp)loadMpMsgs(true);if(curGrp)loadGrpMsgs(true);}
+async function poll(){
+  if(curMp){
+    const cid=getMpId(ME.id,curMp.id);
+    const prev=mpSince[cid];
+    await loadMpMsgs(true);
+    if(prev&&mpSince[cid]&&mpSince[cid]!==prev){}// handled in loadMpMsgs
+  }
+  if(curGrp) await loadGrpMsgs(true);
+  // Poll MP non-ouverts pour notifs
+  await pollNotifications();
+}
+
+/* ══ NOTIFICATIONS ══ */
+let notifGranted=false;
+let lastSeenMp={};   // conv_id -> last timestamp
+let lastSeenGrp={};  // group_id -> last timestamp
+
+/* ══ CONFIG FCM ══ */
+const FB_CONFIG={
+  apiKey:"AIzaSyASoPn03y1OsIhfPmNA4oqtYdkIwkWBx6Y",
+  authDomain:"webradio-martinews-notifs.firebaseapp.com",
+  projectId:"webradio-martinews-notifs",
+  storageBucket:"webradio-martinews-notifs.firebasestorage.app",
+  messagingSenderId:"165465587608",
+  appId:"1:165465587608:web:85feee28a4fb68bbf8f5ed"
+};
+const VAPID_KEY="BOZrmE0ZK20iTUhoybSnlKLi0JEb8Iz2tCgZCryMh8HwAznEx3p33Y0nJ9KKc9bx4iwLZvFvGhkJ67GEsT3aD_U";
+
+let fcmToken=null;
+let notifGranted=false;
+
+async function initNotifications(){
+  if(!('Notification' in window)||!('serviceWorker' in navigator))return;
+
+  // Demander permission
+  let perm=Notification.permission;
+  if(perm==='default') perm=await Notification.requestPermission();
+  if(perm!=='granted')return;
+  notifGranted=true;
+
+  // Injecter le Service Worker FCM (firebase-messaging-sw.js inline via blob)
+  const swCode=`
+importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');
+firebase.initializeApp(${JSON.stringify(FB_CONFIG)});
+const messaging=firebase.messaging();
+messaging.onBackgroundMessage(payload=>{
+  const {title,body,tag}=payload.data||{};
+  self.registration.showNotification(title||'WebRadio',{
+    body:body||'',
+    icon:'https://raw.githubusercontent.com/nathbu92/webradio-lesmartinets/main/favicon.ico',
+    badge:'https://raw.githubusercontent.com/nathbu92/webradio-lesmartinets/main/favicon.ico',
+    tag:tag||'webradio',
+    renotify:true,
+    vibrate:[200,100,200]
+  });
+});
+self.addEventListener('notificationclick',e=>{
+  e.notification.close();
+  e.waitUntil(clients.matchAll({type:'window',includeUncontrolled:true}).then(cs=>{
+    if(cs.length){cs[0].focus();return;}
+    clients.openWindow(self.location.origin);
+  }));
+});`;
+
+  const swBlob=new Blob([swCode],{type:'application/javascript'});
+  const swUrl=URL.createObjectURL(swBlob);
+
+  try{
+    const reg=await navigator.serviceWorker.register(swUrl,{scope:'./'});
+    window._swReg=reg;
+    await navigator.serviceWorker.ready;
+
+    // Charger Firebase Messaging SDK dynamiquement
+    await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
+    await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');
+
+    if(!firebase.apps.length) firebase.initializeApp(FB_CONFIG);
+    const messaging=firebase.messaging();
+
+    if(VAPID_KEY){
+      fcmToken=await messaging.getToken({vapidKey:VAPID_KEY,serviceWorkerRegistration:reg});
+      if(fcmToken){
+        // Envoyer le token au backend pour l'associer à ME.id
+        await api({action:'save_fcm_token',user_id:ME.id,token:fcmToken});
+        console.log('FCM token enregistré');
+      }
+    }
+
+    // Notifs quand app au PREMIER PLAN
+    messaging.onMessage(payload=>{
+      const {title,body,tag}=payload.data||{};
+      showNotifBanner(title||'WebRadio',body||'',tag);
+    });
+
+  }catch(e){
+    console.warn('FCM init échoué, fallback SW basique:',e.message);
+    registerSwBasic();
+  }
+}
+
+function loadScript(src){
+  return new Promise((res,rej)=>{
+    if(document.querySelector(`script[src="${src}"]`)){res();return;}
+    const s=document.createElement('script');s.src=src;s.onload=res;s.onerror=rej;
+    document.head.appendChild(s);
+  });
+}
+
+// Fallback SW sans FCM (pas de VAPID ou erreur)
+function registerSwBasic(){
+  const swCode=`
+self.addEventListener('message',e=>{
+  if(e.data&&e.data.type==='NOTIFY'){
+    self.registration.showNotification(e.data.title,{
+      body:e.data.body||'',
+      tag:e.data.tag||'webradio',
+      renotify:true,
+      vibrate:[200,100,200]
+    });
+  }
+});
+self.addEventListener('notificationclick',e=>{
+  e.notification.close();
+  e.waitUntil(clients.matchAll({type:'window'}).then(cs=>{
+    if(cs.length){cs[0].focus();return;}
+    clients.openWindow(self.location.origin);
+  }));
+});`;
+  const blob=new Blob([swCode],{type:'application/javascript'});
+  navigator.serviceWorker.register(URL.createObjectURL(blob),{scope:'./'}).then(reg=>{
+    window._swReg=reg;
+  }).catch(()=>{});
+}
+
+function sendNotif(title,body,tag='msg'){
+  showNotifBanner(title,body);
+  // Electron → notif native via IPC (marche app minimisée dans systray)
+  if(window.electronAPI){
+    window.electronAPI.showNotification(title,body,tag);
+    return;
+  }
+  if(!notifGranted)return;
+  if(document.visibilityState==='visible')return;
+  if(window._swReg&&window._swReg.active){
+    window._swReg.active.postMessage({type:'NOTIFY',title,body,tag});
+  } else {
+    try{new Notification(title,{body,tag});}catch(e){}
+  }
+}
+
+function showNotifBanner(title,body){
+  // Supprimer l'ancien si existe
+  const old=document.getElementById('notifBanner');if(old)old.remove();
+  const el=document.createElement('div');
+  el.className='notif-banner';el.id='notifBanner';
+  el.innerHTML=`<div class="nb-icon">🔔</div><div class="nb-body"><div class="nb-title">${title}</div><div class="nb-msg">${body}</div></div>`;
+  el.onclick=()=>el.remove();
+  document.body.appendChild(el);
+  setTimeout(()=>{if(el.parentNode)el.remove();},4000);
+}
+
+async function pollNotifications(){
+  if(!ME)return;
+  // Vérifier nouveaux MP de tous les users
+  for(const u of users.filter(u2=>u2.id!==ME.id)){
+    const cid=getMpId(ME.id,u.id);
+    const since=lastSeenMp[cid]||null;
+    if(!since)continue; // pas encore ouvert cette conv, on initialise
+    const p={action:'get_mp',user_id:ME.id,target_id:u.id,since};
+    try{
+      const d=await api(p);
+      if(d.success&&d.messages.length){
+        const newMsgs=d.messages.filter(m=>m.sender_id!==ME.id);
+        if(newMsgs.length){
+          const last=newMsgs[newMsgs.length-1];
+          lastSeenMp[cid]=last.created_at;
+          // Notifier seulement si ce n'est pas la conv ouverte
+          if(!curMp||curMp.id!==u.id){
+            sendNotif(u.login, last.content.substring(0,80),'mp-'+cid);
+          }
+        }
+      }
+    }catch(e){}
+  }
+  // Vérifier nouveaux messages groupes non ouverts
+  for(const g of groups){
+    const since=lastSeenGrp[g.id]||null;
+    if(!since)continue;
+    const p={action:'get_grp_msgs',user_id:ME.id,group_id:g.id,since};
+    try{
+      const d=await api(p);
+      if(d.success&&d.messages.length){
+        const newMsgs=d.messages.filter(m=>m.sender_id!==ME.id);
+        if(newMsgs.length){
+          const last=newMsgs[newMsgs.length-1];
+          lastSeenGrp[g.id]=last.created_at;
+          if(!curGrp||curGrp.id!==g.id){
+            sendNotif(g.name, (last.sender_login||'?')+' : '+last.content.substring(0,60),'grp-'+g.id);
+          }
+        }
+      }
+    }catch(e){}
+  }
+}
+
+// Init lastSeen quand on ouvre une conv
+function initLastSeen(type,id,messages){
+  if(!messages||!messages.length)return;
+  const last=messages[messages.length-1].created_at;
+  if(type==='mp')lastSeenMp[id]=last;
+  else lastSeenGrp[id]=last;
+}
+
+/* ══ MANIFEST PWA ══ */
+function injectManifest(){
+  const manifest={
+    name:'WebRadio Chat',
+    short_name:'WebRadio',
+    description:'Espace communauté WebRadio',
+    start_url:'.',
+    display:'standalone',
+    background_color:'#0a0a0f',
+    theme_color:'#e63946',
+    orientation:'portrait-primary',
+    icons:[
+      {src:'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="20" fill="%23e63946"/><text y=".9em" font-size="80" x="10">📻</text></svg>',sizes:'any',type:'image/svg+xml'}
+    ]
+  };
+  const blob=new Blob([JSON.stringify(manifest)],{type:'application/json'});
+  document.getElementById('manifestLink').href=URL.createObjectURL(blob);
+}
+
+/* ══ IFRAME LIBRE ══ */
+function pIframe(type){
+  const url=prompt('URL à intégrer (site, soundcloud, mixcloud, etc.) :');
+  if(!url)return;
+  const ta=document.getElementById(type+'Box');
+  ta.value+=(ta.value?' ':'')+`[iframe:${url}]`;
+  ta.focus();aRes(ta);
+}
+
+function extractIframes(text){
+  const matches=[...text.matchAll(/\[iframe:(https?:\/\/[^\]]+)\]/g)];
+  return matches.map(m=>`<div class="free-iframe"><iframe src="${m[1]}" allowfullscreen allow="autoplay; encrypted-media; fullscreen" loading="lazy" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation"></iframe></div>`).join('');
+}
 
 /* ══ FORMAT ══ */
 function iFmt(type,b,a){
@@ -1055,6 +1318,7 @@ function renderContent(text){
     .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
     .replace(/_(.+?)_/g,'<em>$1</em>')
     .replace(/`(.+?)`/g,'<code>$1</code>')
+    .replace(/\[iframe:[^\]]+\]/g,'')
     .replace(/\n/g,'<br>')
     .replace(/(https?:\/\/(?!www\.youtube\.com\/watch|youtu\.be\/)[^\s<]+)/g,'<a href="$1" target="_blank" rel="noopener">$1</a>');
 }
