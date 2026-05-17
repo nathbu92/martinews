@@ -410,6 +410,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <div class="modal-section-title">Signalements</div>
         <div id="adminReportsList"><div class="empty">Chargement…</div></div>
       </div>
+      <div class="modal-section" id="adPurgeSection" style="display:none;">
+        <div class="modal-section-title">🗑 Purge des messages</div>
+        <p style="font-size:12px;color:var(--muted);font-family:'DM Mono',monospace;margin-bottom:12px;line-height:1.6;">Garde les 100 derniers messages de chaque conversation MP et groupe. Supprime le reste définitivement.</p>
+        <div id="purgeStats" style="font-size:12px;font-family:'DM Mono',monospace;color:var(--muted);margin-bottom:12px;"></div>
+        <button class="btn-primary" id="btnPurge" onclick="runPurge()"><div class="spin-sm"></div>⚡ Lancer la purge</button>
+      </div>
     </div>
   </div>
 </div>
@@ -461,10 +467,17 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 
 <script>
 const API='https://script.google.com/macros/s/AKfycbz4q_MQKREd7dGy_4TqZJLjYD38NNP0d59FhItc7TDsc4iGK-7ZOVI8C0HQJKL-ciCzUA/exec';
-const POLL=5000;
+const POLL=5000; // garde pour actus/groupes/users
 const EMOJIS=['👍','❤️','😂','😮','😢','🔥','👏','🎵'];
+
+/* ══ SUPABASE CONFIG ══ */
+const SB_URL='https://hikwkdjzwedehijibefz.supabase.co';
+const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhpa3drZGp6d2VkZWhpamliZWZ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg5Njk2OTIsImV4cCI6MjA5NDU0NTY5Mn0.S159u9a2DhQr6maMLyQWvIIZwqrYW2mw3Zp49Ef9Fzo';
+let sb=null; // client Supabase
+let mpChannel=null, grpChannel=null; // canaux Realtime
+
 let ME=null,users=[],groups=[],curTab='news',curMp=null,curGrp=null;
-let mpSince={},grpSince={},replyState={mp:null,grp:null},editingMsg=null;
+let replyState={mp:null,grp:null},editingMsg=null;
 let pendingReport=null,pendingSuspend=null;
 
 /* ══ LOADING ══ */
@@ -547,6 +560,8 @@ document.addEventListener('keydown',e=>{
 
 /* ══ APP INIT ══ */
 async function showApp(){
+  setLoadMsg('Connexion Supabase…');
+  await initSupabase();
   setLoadMsg('Chargement des données…');
   try{
     await loadUsers();
@@ -558,7 +573,40 @@ async function showApp(){
   initAppUI();
   injectManifest();
   initNotifications();
-  setInterval(poll,POLL);
+  setInterval(poll,POLL); // garde pour actus/users/groupes
+}
+
+/* ══ SUPABASE CLIENT ══ */
+async function initSupabase(){
+  await loadScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js');
+  sb=window.supabase.createClient(SB_URL,SB_KEY,{
+    realtime:{params:{eventsPerSecond:10}}
+  });
+}
+
+/* ══ SUPABASE HELPERS ══ */
+async function sbInsert(table,row){
+  const {data,error}=await sb.from(table).insert(row).select().single();
+  if(error)throw error;
+  return data;
+}
+
+async function sbSelect(table,filters={}){
+  let q=sb.from(table).select('*').order('created_at',{ascending:true});
+  for(const [k,v] of Object.entries(filters)) q=q.eq(k,v);
+  const {data,error}=await q;
+  if(error)throw error;
+  return data||[];
+}
+
+async function sbUpdate(table,id,updates){
+  const {error}=await sb.from(table).update(updates).eq('id',id);
+  if(error)throw error;
+}
+
+async function sbDelete(table,id){
+  const {error}=await sb.from(table).delete().eq('id',id);
+  if(error)throw error;
 }
 
 function initAppUI(){
@@ -570,6 +618,7 @@ function initAppUI(){
     document.getElementById('adCodesSection').style.display='';
     document.getElementById('adUsersSection').style.display='';
     document.getElementById('adReportsSection').style.display='';
+    document.getElementById('adPurgeSection').style.display='';
   }
 }
 
@@ -676,7 +725,7 @@ function iFmtNews(b,a){
   ta.focus();ta.selectionStart=s+b.length;ta.selectionEnd=e+b.length;
 }
 
-/* ══ MP ══ */
+/* ══ MP — SUPABASE REALTIME ══ */
 function getMpId(a,b){return[a,b].sort().join('_');}
 
 function openMp(u){
@@ -687,31 +736,70 @@ function openMp(u){
   document.getElementById('mpHeader').style.display='';
   const av=document.getElementById('mpHAv');av.style.background=u.avatar_color;av.textContent=u.login[0].toUpperCase();
   document.getElementById('mpHName').textContent=u.login;
-  renderSidebar();mpSince[getMpId(ME.id,u.id)]=null;loadMpMsgs();
+  renderSidebar();
+  subscribeMp(u.id);
+  loadMpMsgs();
 }
 
-async function loadMpMsgs(polling=false){
-  if(!curMp)return;
-  const cid=getMpId(ME.id,curMp.id);
-  const p={action:'get_mp',user_id:ME.id,target_id:curMp.id};
-  if(polling&&mpSince[cid])p.since=mpSince[cid];
-  if(!polling)document.getElementById('mpMessages').innerHTML=skeletons(4);
-  const d=await api(p);if(!d.success)return;
-  if(d.messages.length){mpSince[cid]=d.messages[d.messages.length-1].created_at;if(polling)appendMsgs(d.messages,'mp',cid);else{renderMsgs(d.messages,'mp',cid);initLastSeen('mp',cid,d.messages);}}
-  else if(!polling)document.getElementById('mpMessages').innerHTML='<div class="empty">Commencez la conversation !</div>';
+function subscribeMp(targetId){
+  if(mpChannel)sb.removeChannel(mpChannel);
+  const ids=[ME.id,targetId].sort();
+  mpChannel=sb.channel('mp-'+ids.join('-'))
+    .on('postgres_changes',{
+      event:'INSERT',schema:'public',table:'messages_mp',
+      filter:`sender_id=eq.${targetId}`
+    },payload=>{
+      if(payload.new.receiver_id!==ME.id)return;
+      const msg=sbRowToMsg(payload.new,'mp');
+      if(curMp&&curMp.id===targetId){
+        appendMsgs([msg],'mp',getMpId(ME.id,targetId));
+      } else {
+        sendNotif(payload.new.sender_login,payload.new.content.substring(0,80),'mp');
+      }
+    })
+    .on('postgres_changes',{
+      event:'UPDATE',schema:'public',table:'messages_mp'
+    },payload=>{
+      const el=document.querySelector(`[data-msg-id="${payload.new.id}"]`);
+      if(el)el.replaceWith(buildMsg(sbRowToMsg(payload.new,'mp'),'mp',getMpId(ME.id,targetId)));
+    })
+    .subscribe();
+}
+
+async function loadMpMsgs(){
+  if(!curMp||!sb)return;
+  document.getElementById('mpMessages').innerHTML=skeletons(4);
+  try{
+    const {data,error}=await sb.from('messages_mp')
+      .select('*')
+      .or(`and(sender_id.eq.${ME.id},receiver_id.eq.${curMp.id}),and(sender_id.eq.${curMp.id},receiver_id.eq.${ME.id})`)
+      .order('created_at',{ascending:true})
+      .limit(100);
+    if(error)throw error;
+    const msgs=(data||[]).map(r=>sbRowToMsg(r,'mp'));
+    if(msgs.length){renderMsgs(msgs,'mp',getMpId(ME.id,curMp.id));initLastSeen('mp',getMpId(ME.id,curMp.id),msgs);}
+    else document.getElementById('mpMessages').innerHTML='<div class="empty">Commencez la conversation !</div>';
+  }catch(e){toast('Erreur chargement messages','error');console.error(e);}
 }
 
 async function sendMp(){
   const box=document.getElementById('mpBox'),c=box.value.trim();if(!c||!curMp)return;
   const rep=replyState.mp;box.value='';aRes(box);
   const btn=document.getElementById('mpSendBtn');btn.classList.add('sending');btn.disabled=true;
-  const p={action:'send_mp',user_id:ME.id,target_id:curMp.id,content:c};
-  if(rep){p.reply_to_id=rep.id;p.reply_preview=rep.preview;}clearReply('mp');
-  const d=await api(p);btn.classList.remove('sending');btn.disabled=false;
-  if(d.success)loadMpMsgs();else toast(d.error,'error');
+  clearReply('mp');
+  try{
+    const row={sender_id:ME.id,sender_login:ME.login,receiver_id:curMp.id,content:c};
+    if(rep){row.reply_to_id=rep.id;row.reply_preview=rep.preview;}
+    const data=await sbInsert('messages_mp',row);
+    // Afficher immédiatement côté expéditeur
+    appendMsgs([sbRowToMsg(data,'mp')],'mp',getMpId(ME.id,curMp.id));
+    // Push FCM via Apps Script (pas bloquant)
+    api({action:'push_fcm',target_id:curMp.id,title:ME.login,body:c.substring(0,100),tag:'mp'}).catch(()=>{});
+  }catch(e){toast('Erreur envoi','error');console.error(e);}
+  btn.classList.remove('sending');btn.disabled=false;
 }
 
-/* ══ GROUPS ══ */
+/* ══ GROUPS — SUPABASE REALTIME ══ */
 async function loadGroups(){
   const d=await api({action:'get_groups',user_id:ME.id,role:ME.role});
   if(d.success){
@@ -732,27 +820,82 @@ function openGroup(g){
   document.getElementById('grpHName').textContent=g.name;
   document.getElementById('grpHSub').textContent=g.description||(g.members.length+' membres')+(isRO?' · 👁 lecture seule':'');
   document.getElementById('grpEditBtn').style.display=(g.created_by===ME.id||ME.role==='admin')?'':'none';
-  renderSidebar();grpSince[g.id]=null;loadGrpMsgs();
+  renderSidebar();
+  subscribeGrp(g.id);
+  loadGrpMsgs();
 }
 
-async function loadGrpMsgs(polling=false){
-  if(!curGrp)return;
-  const p={action:'get_grp_msgs',user_id:ME.id,group_id:curGrp.id};
-  if(polling&&grpSince[curGrp.id])p.since=grpSince[curGrp.id];
-  if(!polling)document.getElementById('grpMessages').innerHTML=skeletons(4);
-  const d=await api(p);if(!d.success)return;
-  if(d.messages.length){grpSince[curGrp.id]=d.messages[d.messages.length-1].created_at;if(polling)appendMsgs(d.messages,'grp',curGrp.id);else{renderMsgs(d.messages,'grp',curGrp.id);initLastSeen('grp',curGrp.id,d.messages);}}
-  else if(!polling)document.getElementById('grpMessages').innerHTML='<div class="empty">Aucun message.</div>';
+function subscribeGrp(groupId){
+  if(grpChannel)sb.removeChannel(grpChannel);
+  grpChannel=sb.channel('grp-'+groupId)
+    .on('postgres_changes',{
+      event:'INSERT',schema:'public',table:'messages_grp',
+      filter:`group_id=eq.${groupId}`
+    },payload=>{
+      if(payload.new.sender_id===ME.id)return; // déjà affiché
+      const msg=sbRowToMsg(payload.new,'grp');
+      if(curGrp&&curGrp.id===groupId){
+        appendMsgs([msg],'grp',groupId);
+      } else {
+        sendNotif(payload.new.sender_login,payload.new.content.substring(0,80),'grp');
+      }
+    })
+    .on('postgres_changes',{
+      event:'UPDATE',schema:'public',table:'messages_grp',
+      filter:`group_id=eq.${groupId}`
+    },payload=>{
+      const el=document.querySelector(`[data-msg-id="${payload.new.id}"]`);
+      if(el)el.replaceWith(buildMsg(sbRowToMsg(payload.new,'grp'),'grp',groupId));
+    })
+    .subscribe();
+}
+
+async function loadGrpMsgs(){
+  if(!curGrp||!sb)return;
+  document.getElementById('grpMessages').innerHTML=skeletons(4);
+  try{
+    const {data,error}=await sb.from('messages_grp')
+      .select('*')
+      .eq('group_id',curGrp.id)
+      .order('created_at',{ascending:true})
+      .limit(100);
+    if(error)throw error;
+    const msgs=(data||[]).map(r=>sbRowToMsg(r,'grp'));
+    if(msgs.length){renderMsgs(msgs,'grp',curGrp.id);initLastSeen('grp',curGrp.id,msgs);}
+    else document.getElementById('grpMessages').innerHTML='<div class="empty">Aucun message.</div>';
+  }catch(e){toast('Erreur chargement messages','error');console.error(e);}
 }
 
 async function sendGrp(){
   const box=document.getElementById('grpBox'),c=box.value.trim();if(!c||!curGrp)return;
   const rep=replyState.grp;box.value='';aRes(box);
   const btn=document.getElementById('grpSendBtn');btn.classList.add('sending');btn.disabled=true;
-  const p={action:'send_grp_msg',user_id:ME.id,group_id:curGrp.id,content:c};
-  if(rep){p.reply_to_id=rep.id;p.reply_preview=rep.preview;}clearReply('grp');
-  const d=await api(p);btn.classList.remove('sending');btn.disabled=false;
-  if(d.success)loadGrpMsgs();else toast(d.error,'error');
+  clearReply('grp');
+  try{
+    const row={group_id:curGrp.id,sender_id:ME.id,sender_login:ME.login,content:c};
+    if(rep){row.reply_to_id=rep.id;row.reply_preview=rep.preview;}
+    const data=await sbInsert('messages_grp',row);
+    appendMsgs([sbRowToMsg(data,'grp')],'grp',curGrp.id);
+    // Push FCM aux membres (pas bloquant)
+    const members=(curGrp.members||[]).filter(m=>m!==ME.id);
+    members.forEach(mid=>api({action:'push_fcm',target_id:mid,title:ME.login+' ('+curGrp.name+')',body:c.substring(0,100),tag:'grp'}).catch(()=>{}));
+  }catch(e){toast('Erreur envoi','error');console.error(e);}
+  btn.classList.remove('sending');btn.disabled=false;
+}
+
+/* ══ SUPABASE ROW → MSG ══ */
+function sbRowToMsg(row,type){
+  return{
+    id:row.id,
+    sender_id:row.sender_id,
+    sender_login:row.sender_login,
+    content:row.deleted?'':row.content,
+    created_at:row.created_at,
+    edited_at:row.edited_at||'',
+    deleted:row.deleted||false,
+    reply_to_id:row.reply_to_id||'',
+    reply_preview:row.reply_preview||''
+  };
 }
 
 /* ══ SKELETON ══ */
@@ -803,16 +946,30 @@ function buildMsg(msg,type,cid){
 }
 
 /* ══ REACTIONS ══ */
-async function loadReactions(mid){
-  const d=await api({action:'get_reactions',msg_id:mid});if(!d.success)return;
+async function loadReactions(mid,type='mp'){
+  if(!sb)return;
+  const table=type==='mp'?'reactions_mp':'reactions_grp';
+  const {data}=await sb.from(table).select('*').eq('msg_id',mid);
   const el=document.getElementById('r-'+mid);if(!el)return;el.innerHTML='';
-  Object.entries(d.reactions).forEach(([e,uids])=>{
+  const grouped={};
+  (data||[]).forEach(r=>{if(!grouped[r.emoji])grouped[r.emoji]=[];grouped[r.emoji].push(r.user_id);});
+  Object.entries(grouped).forEach(([e,uids])=>{
     const c=document.createElement('div');c.className='rchip'+(uids.includes(ME.id)?' mine':'');
-    c.innerHTML=`${e} <span class="rc">${uids.length}</span>`;c.onclick=()=>doReact(mid,e);el.appendChild(c);
+    c.innerHTML=`${e} <span class="rc">${uids.length}</span>`;c.onclick=()=>doReact(mid,e,type);el.appendChild(c);
   });
 }
 
-async function doReact(mid,emoji){await api({action:'react',user_id:ME.id,msg_id:mid,emoji});loadReactions(mid);}
+async function doReact(mid,emoji,type='mp'){
+  if(!sb)return;
+  const table=type==='mp'?'reactions_mp':'reactions_grp';
+  const {data}=await sb.from(table).select('*').eq('msg_id',mid).eq('user_id',ME.id).eq('emoji',emoji);
+  if(data&&data.length){
+    await sb.from(table).delete().eq('id',data[0].id);
+  } else {
+    await sb.from(table).insert({msg_id:mid,user_id:ME.id,emoji});
+  }
+  loadReactions(mid,type);
+}
 
 /* ══ CONTEXT MENU ══ */
 let lpT=null;
@@ -865,15 +1022,24 @@ function cancelEdit(type){editingMsg=null;document.getElementById(type+'Box').va
 async function sendOrEdit(type){
   if(editingMsg&&editingMsg.type===type){
     const box=document.getElementById(type+'Box'),c=box.value.trim();if(!c)return;
-    const d=await api({action:'edit_msg',user_id:ME.id,msg_type:type,conv_id:editingMsg.cid,msg_id:editingMsg.msg_id,content:c});
-    if(d.success){cancelEdit(type);if(type==='mp')loadMpMsgs();else loadGrpMsgs();}else toast(d.error,'error');
+    const table=type==='mp'?'messages_mp':'messages_grp';
+    try{
+      await sbUpdate(table,editingMsg.msg_id,{content:c,edited_at:new Date().toISOString()});
+      cancelEdit(type);
+      const el=document.querySelector(`[data-msg-id="${editingMsg.msg_id}"]`);
+      if(el){const b=el.querySelector('.msg-content');if(b)b.innerHTML=renderContent(c);}
+    }catch(e){toast('Erreur modification','error');}
   } else {if(type==='mp')sendMp();else sendGrp();}
 }
 
 async function delMsg(type,cid,mid){
   if(!confirm('Supprimer ?'))return;
-  const d=await api({action:'delete_msg',user_id:ME.id,role:ME.role,msg_type:type,conv_id:cid,msg_id:mid});
-  if(d.success){if(type==='mp')loadMpMsgs();else loadGrpMsgs();}else toast(d.error,'error');
+  const table=type==='mp'?'messages_mp':'messages_grp';
+  try{
+    await sbUpdate(table,mid,{deleted:true,content:''});
+    const el=document.querySelector(`[data-msg-id="${mid}"]`);
+    if(el){const bwrap=el.querySelector('.msg-bwrap');if(bwrap){const b=bwrap.querySelector('.msg-bubble');if(b){b.className='msg-bubble deleted';b.innerHTML='🚫 Message supprimé';}}}
+  }catch(e){toast('Erreur suppression','error');}
 }
 
 function forwardMsg(msg){
@@ -947,7 +1113,7 @@ async function deleteGroup(){
 
 /* ══ SETTINGS ══ */
 function openSettings(){
-  if(ME.role==='admin'){loadCodes();loadAdminUsers();loadAdminReports();}
+  if(ME.role==='admin'){loadCodes();loadAdminUsers();loadAdminReports();loadPurgeStats();}
   openModal('ovSettings');
 }
 
@@ -1047,6 +1213,80 @@ async function handleReport(rid){
   if(d.success){toast('Traité ✓','success');loadAdminReports();}
 }
 
+/* ══ PURGE ══ */
+async function loadPurgeStats(){
+  if(!sb)return;
+  const el=document.getElementById('purgeStats');
+  if(!el)return;
+  try{
+    const [{count:mpCount},{count:grpCount}]=await Promise.all([
+      sb.from('messages_mp').select('*',{count:'exact',head:true}),
+      sb.from('messages_grp').select('*',{count:'exact',head:true})
+    ]);
+    el.textContent=`MP : ${mpCount||0} messages · Groupes : ${grpCount||0} messages`;
+  }catch(e){el.textContent='Impossible de charger les stats';}
+}
+
+async function runPurge(){
+  if(!confirm('Purger les messages ? Cette action est irréversible.'))return;
+  if(ME.role!=='admin'){toast('Admin uniquement','error');return;}
+  const btn=document.getElementById('btnPurge');
+  btnLoad(btn,true);
+  const el=document.getElementById('purgeStats');
+  if(el)el.textContent='Purge en cours…';
+  try{
+    let totalDeleted=0;
+
+    // ── Purge MP : garder 100 derniers par paire sender/receiver ──
+    const {data:mpConvs}=await sb.from('messages_mp')
+      .select('sender_id,receiver_id')
+      .order('created_at',{ascending:false});
+
+    // Identifier les paires uniques
+    const mpPairs=new Set();
+    (mpConvs||[]).forEach(r=>{
+      const key=[r.sender_id,r.receiver_id].sort().join('|');
+      mpPairs.add(key);
+    });
+
+    for(const pair of mpPairs){
+      const [a,b]=pair.split('|');
+      // Récupérer tous les IDs triés par date desc
+      const {data:msgs}=await sb.from('messages_mp')
+        .select('id')
+        .or(`and(sender_id.eq.${a},receiver_id.eq.${b}),and(sender_id.eq.${b},receiver_id.eq.${a})`)
+        .order('created_at',{ascending:false});
+      if(!msgs||msgs.length<=100)continue;
+      const toDelete=msgs.slice(100).map(m=>m.id);
+      const {error}=await sb.from('messages_mp').delete().in('id',toDelete);
+      if(!error)totalDeleted+=toDelete.length;
+    }
+
+    // ── Purge Groupes : garder 100 derniers par group_id ──
+    const {data:grpIds}=await sb.from('messages_grp')
+      .select('group_id');
+    const uniqueGrps=[...new Set((grpIds||[]).map(r=>r.group_id))];
+
+    for(const gid of uniqueGrps){
+      const {data:msgs}=await sb.from('messages_grp')
+        .select('id')
+        .eq('group_id',gid)
+        .order('created_at',{ascending:false});
+      if(!msgs||msgs.length<=100)continue;
+      const toDelete=msgs.slice(100).map(m=>m.id);
+      const {error}=await sb.from('messages_grp').delete().in('id',toDelete);
+      if(!error)totalDeleted+=toDelete.length;
+    }
+
+    toast(`Purge terminée — ${totalDeleted} messages supprimés ✓`,'success');
+    loadPurgeStats();
+  }catch(e){
+    toast('Erreur purge : '+e.message,'error');
+    console.error(e);
+  }
+  btnLoad(btn,false);
+}
+
 function promptNewMp(){
   const t=prompt('Login de l\'utilisateur :');if(!t)return;
   const u=users.find(u=>u.login===t.toLowerCase().trim());
@@ -1054,16 +1294,19 @@ function promptNewMp(){
 }
 
 async function poll(){
-  if(curMp){
-    const cid=getMpId(ME.id,curMp.id);
-    const prev=mpSince[cid];
-    await loadMpMsgs(true);
-    if(prev&&mpSince[cid]&&mpSince[cid]!==prev){}// handled in loadMpMsgs
-  }
-  if(curGrp) await loadGrpMsgs(true);
-  // Poll MP non-ouverts pour notifs
   await pollNotifications();
 }
+
+
+
+
+
+
+
+
+
+
+
 
 /* ══ NOTIFICATIONS ══ */
 let notifGranted=false;
