@@ -1082,7 +1082,6 @@ const FB_CONFIG={
 const VAPID_KEY="BOZrmE0ZK20iTUhoybSnlKLi0JEb8Iz2tCgZCryMh8HwAznEx3p33Y0nJ9KKc9bx4iwLZvFvGhkJ67GEsT3aD_U";
 
 let fcmToken=null;
-let notifGranted=false;
 
 async function initNotifications(){
   if(!('Notification' in window)||!('serviceWorker' in navigator))return;
