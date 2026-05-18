@@ -467,6 +467,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 
 <script>
 const API='https://script.google.com/macros/s/AKfycby4m6_IaNivR9UstyyFw1WvvAwOj4NAXcvVCC-q32aDfKUThpaED1o8zzEXNR-zI5Y6Fw/exec';
+const EDGE_PUSH='https://hikwkdjzwedehijibefz.supabase.co/functions/v1/hyper-handler';
 const POLL=5000;
 const EMOJIS=['👍','❤️','😂','😮','😢','🔥','👏','🎵'];
 
@@ -792,7 +793,7 @@ async function sendMp(){
     if(rep){row.reply_to_id=rep.id;row.reply_preview=rep.preview;}
     const data=await sbInsert('messages_mp',row);
     appendMsgs([sbRowToMsg(data,'mp')],'mp',getMpId(ME.id,curMp.id));
-    api({action:'push_fcm',target_id:curMp.id,title:ME.login,body:c.substring(0,100),tag:'mp'}).catch(()=>{});
+    getTokensFor(curMp.id).then(tokens=>pushViaEdge(tokens,ME.login,c.substring(0,100),'mp'));
   }catch(e){toast('Erreur envoi','error');console.error(e);}
   btn.classList.remove('sending');btn.disabled=false;
 }
@@ -875,7 +876,7 @@ async function sendGrp(){
     const data=await sbInsert('messages_grp',row);
     appendMsgs([sbRowToMsg(data,'grp')],'grp',curGrp.id);
     const members=(curGrp.members||[]).filter(m=>m!==ME.id);
-    members.forEach(mid=>api({action:'push_fcm',target_id:mid,title:ME.login+' ('+curGrp.name+')',body:c.substring(0,100),tag:'grp'}).catch(()=>{}));
+    members.forEach(mid=>getTokensFor(mid).then(tokens=>pushViaEdge(tokens,ME.login+' ('+curGrp.name+')',c.substring(0,100),'grp')));
   }catch(e){toast('Erreur envoi','error');console.error(e);}
   btn.classList.remove('sending');btn.disabled=false;
 }
@@ -1314,7 +1315,8 @@ async function initNotifications(){
     if(VAPID_KEY){
       fcmToken=await messaging.getToken({vapidKey:VAPID_KEY,serviceWorkerRegistration:reg});
       if(fcmToken){
-        await api({action:'save_fcm_token',user_id:ME.id,token:fcmToken});
+        // Sauvegarder dans Supabase directement (plus fiable qu'Apps Script)
+        await sb.from('fcm_tokens').upsert({user_id:ME.id,token:fcmToken,updated_at:new Date().toISOString()},{onConflict:'user_id,token'});
         console.log('FCM token enregistré');
       }
     }
@@ -1365,14 +1367,34 @@ self.addEventListener('notificationclick',e=>{
   }).catch(()=>{});
 }
 
+// ── Push via Supabase Edge Function (rapide, fiable) ──
+async function pushViaEdge(tokens,title,body,tag){
+  if(!tokens||!tokens.length)return;
+  try{
+    await fetch(EDGE_PUSH,{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+SB_KEY},
+      body:JSON.stringify({tokens,title,body,tag:tag||'webradio'})
+    });
+  }catch(e){console.warn('Edge push error:',e);}
+}
+
+// ── Récupère les tokens FCM d'un user depuis fcm_tokens ──
+async function getTokensFor(userId){
+  if(!sb)return[];
+  const {data}=await sb.from('fcm_tokens').select('token').eq('user_id',userId);
+  return(data||[]).map(r=>r.token).filter(Boolean);
+}
+
 function sendNotif(title,body,tag='msg'){
+  // Toujours afficher la bannière in-app
   showNotifBanner(title,body);
   if(window.electronAPI){
     window.electronAPI.showNotification(title,body,tag);
     return;
   }
   if(!notifGranted)return;
-  if(document.visibilityState==='visible')return;
+  // Notif système même si l'onglet est visible
   if(window._swReg&&window._swReg.active){
     window._swReg.active.postMessage({type:'NOTIFY',title,body,tag});
   } else {
