@@ -85,7 +85,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .conv-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:4px;cursor:pointer;transition:background .15s;margin-bottom:2px;border-left:2px solid transparent;}
 .conv-item:hover,.conv-item.active{background:var(--surface2);}
 .conv-item.active{border-left-color:var(--accent);}
-.unread-badge{background:var(--accent);color:white;font-size:10px;font-family:'DM Mono',monospace;font-weight:500;min-width:18px;height:18px;border-radius:9px;display:flex;align-items:center;justify-content:center;padding:0 5px;flex-shrink:0;}
 .av{border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'DM Mono',monospace;font-weight:500;color:white;flex-shrink:0;text-transform:uppercase;}
 .conv-info{flex:1;min-width:0;}
 .conv-name{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -480,7 +479,6 @@ let mpChannel=null,grpChannel=null;
 let ME=null,users=[],groups=[],curTab='news',curMp=null,curGrp=null;
 let replyState={mp:null,grp:null},editingMsg=null;
 let pendingReport=null,pendingSuspend=null;
-let unreadMp={},unreadGrp={};
 
 /* ══ LOADING ══ */
 function setLoadMsg(msg){document.getElementById('loadMsg').textContent=msg;}
@@ -570,9 +568,6 @@ async function showApp(){
     setLoadMsg('Presque prêt…');
     await Promise.all([loadNews(),loadGroups()]);
   } catch(e){console.warn('Init partielle:',e);}
-  const nowIso=new Date().toISOString();
-  users.filter(u=>u.id!==ME.id).forEach(u=>{const cid=getMpId(ME.id,u.id);if(!lastSeenMp[cid])lastSeenMp[cid]=nowIso;});
-  groups.forEach(g=>{if(!lastSeenGrp[g.id])lastSeenGrp[g.id]=nowIso;});
   hideLoad();
   document.getElementById('appScreen').classList.add('visible');
   initAppUI();
@@ -654,10 +649,8 @@ function renderSidebar(){
     const others=users.filter(u=>u.id!==ME.id);
     if(!others.length){el.innerHTML+='<div class="empty">Aucun autre utilisateur</div>';return;}
     others.forEach(u=>{
-      const cid=getMpId(ME.id,u.id);
-      const uc=unreadMp[cid]||0;
       const d=document.createElement('div');d.className='conv-item'+(curMp?.id===u.id?' active':'');
-      d.innerHTML=mkAv(u.login,u.avatar_color)+`<div class="conv-info"><div class="conv-name">${u.login}</div><div class="conv-preview">${u.role==='admin'?'★ Admin':'Membre'}</div></div>`+(uc>0?`<div class="unread-badge">${uc>9?'9+':uc}</div>`:'');
+      d.innerHTML=mkAv(u.login,u.avatar_color)+`<div class="conv-info"><div class="conv-name">${u.login}</div><div class="conv-preview">${u.role==='admin'?'★ Admin':'Membre'}</div></div>`;
       d.onclick=()=>openMp(u);el.appendChild(d);
     });
   } else if(curTab==='groups'){
@@ -667,9 +660,8 @@ function renderSidebar(){
     const C=['#5a5a7a','#264653','#6d6875','#2d6a4f','#1d3557','#7b2d8b','#3d405b'];
     groups.forEach(g=>{
       const col=g._color||C[Math.abs(g.id.split('').reduce((h,c)=>((h<<5)-h)+c.charCodeAt(0),0))%C.length];
-      const ugc=unreadGrp[g.id]||0;
       const d=document.createElement('div');d.className='conv-item'+(curGrp?.id===g.id?' active':'');
-      d.innerHTML=mkAv(g.name,col)+`<div class="conv-info"><div class="conv-name">${g.name}</div><div class="conv-preview">${g.members.length} membre${g.members.length>1?'s':''}</div></div>`+(ugc>0?`<div class="unread-badge">${ugc>9?'9+':ugc}</div>`:'');
+      d.innerHTML=mkAv(g.name,col)+`<div class="conv-info"><div class="conv-name">${g.name}</div><div class="conv-preview">${g.members.length} membre${g.members.length>1?'s':''}</div></div>`;
       d.onclick=()=>openGroup(g);el.appendChild(d);
     });
   }
@@ -738,7 +730,6 @@ function getMpId(a,b){return[a,b].sort().join('_');}
 
 function openMp(u){
   curMp=u;
-  const cid=getMpId(ME.id,u.id);unreadMp[cid]=0;renderSidebar();
   document.getElementById('mpWelcome').style.display='none';
   document.getElementById('mpMessages').style.cssText='display:flex;flex-direction:column;';
   document.getElementById('mpInput').style.display='';
@@ -763,7 +754,6 @@ function subscribeMp(targetId){
       if(curMp&&curMp.id===targetId){
         appendMsgs([msg],'mp',getMpId(ME.id,targetId));
       } else {
-        const rcid=getMpId(ME.id,targetId);unreadMp[rcid]=(unreadMp[rcid]||0)+1;renderSidebar();
         sendNotif(payload.new.sender_login,payload.new.content.substring(0,80),'mp');
       }
     })
@@ -819,7 +809,6 @@ async function loadGroups(){
 
 function openGroup(g){
   curGrp=g;
-  unreadGrp[g.id]=0;renderSidebar();
   document.getElementById('grpWelcome').style.display='none';
   document.getElementById('grpMessages').style.cssText='display:flex;flex-direction:column;';
   document.getElementById('grpHeader').style.display='';
@@ -846,7 +835,6 @@ function subscribeGrp(groupId){
       if(curGrp&&curGrp.id===groupId){
         appendMsgs([msg],'grp',groupId);
       } else {
-        unreadGrp[groupId]=(unreadGrp[groupId]||0)+1;renderSidebar();
         sendNotif(payload.new.sender_login,payload.new.content.substring(0,80),'grp');
       }
     })
@@ -1312,7 +1300,7 @@ async function initNotifications(){
 
   try{
     // ── CORRECTION : vrai fichier SW au lieu d'un blob URL ──
-    const reg=await navigator.serviceWorker.register('/martinews/firebase-messaging-sw.js');
+    const reg=await navigator.serviceWorker.register('/firebase-messaging-sw.js');
     window._swReg=reg;
     await navigator.serviceWorker.ready;
 
@@ -1417,8 +1405,6 @@ async function pollNotifications(){
           const last=newMsgs[newMsgs.length-1];
           lastSeenMp[cid]=last.created_at;
           if(!curMp||curMp.id!==u.id){
-            unreadMp[cid]=(unreadMp[cid]||0)+newMsgs.length;
-            renderSidebar();
             sendNotif(u.login, last.content.substring(0,80),'mp-'+cid);
           }
         }
@@ -1437,8 +1423,6 @@ async function pollNotifications(){
           const last=newMsgs[newMsgs.length-1];
           lastSeenGrp[g.id]=last.created_at;
           if(!curGrp||curGrp.id!==g.id){
-            unreadGrp[g.id]=(unreadGrp[g.id]||0)+newMsgs.length;
-            renderSidebar();
             sendNotif(g.name, (last.sender_login||'?')+' : '+last.content.substring(0,60),'grp-'+g.id);
           }
         }
