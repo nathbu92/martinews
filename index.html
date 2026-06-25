@@ -718,7 +718,7 @@ function switchTab(tab){
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===tab));
   document.querySelectorAll('.tab-content').forEach(t=>t.classList.toggle('active',t.id==='tab-'+tab));
   renderSidebar();
-  if(window.innerWidth<=640&&(tab==='mp'||tab==='groups'))openMobileOverlay(tab);
+  if(window.innerWidth<=640&&tab!=='news')openMobileOverlay(tab);
 }
 
 function openMobileOverlay(tab){
@@ -1499,12 +1499,9 @@ self.addEventListener('notificationclick',e=>{
 
 function sendNotif(title,body,tag='msg'){
   showNotifBanner(title,body);
-  if(window.electronAPI){
-    window.electronAPI.showNotification(title,body,tag);
-    return;
-  }
+  if(window.electronAPI){window.electronAPI.showNotification(title,body,tag);return;}
   if(!notifGranted)return;
-  if(document.visibilityState==='visible')return;
+  // Notif système même si app visible (pour les autres onglets/appareils)
   if(window._swReg&&window._swReg.active){
     window._swReg.active.postMessage({type:'NOTIFY',title,body,tag});
   } else {
