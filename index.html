@@ -318,7 +318,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
   /* Toast */
   .toast{bottom:70px;right:8px;left:8px;text-align:center;}
 }
-.mobile-back{display:none;background:none;border:none;color:var(--muted);cursor:pointer;padding:4px;margin-right:4px;display:flex;}
+.mobile-back{display:none;background:none;border:none;color:var(--muted);cursor:pointer;padding:4px;margin-right:4px;}
+#mobileSidebarOverlay{display:none;}
 </style>
 </head>
 <body>
@@ -469,6 +470,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <div class="mfg"><label>Ancien MDP</label><input type="password" id="oldPwd" placeholder="••••••••"></div>
         <div class="mfg"><label>Nouveau MDP</label><input type="password" id="newPwd" placeholder="••••••••"></div>
         <button class="btn-primary" id="btnChangePwd" onclick="changePassword()"><div class="spin-sm"></div>Mettre à jour</button>
+      </div>
+      <div class="modal-section">
+        <div class="modal-section-title">Notifications</div>
+        <button class="btn-primary" onclick="requestNotifPermission()"><div class="spin-sm"></div>🔔 Activer les notifications</button>
+        <div id="notifPermStatus" style="font-size:11px;color:var(--muted);font-family:DM Mono,monospace;margin-top:8px;"></div>
       </div>
       <div class="modal-section">
         <div class="modal-section-title">Session</div>
@@ -1497,7 +1503,21 @@ self.addEventListener('notificationclick',e=>{
   }).catch(()=>{});
 }
 
-function sendNotif(title,body,tag='msg'){
+function requestNotifPermission(){
+  const el=document.getElementById('notifPermStatus');
+  if(!('Notification' in window)){if(el)el.textContent='Non supporté par ce navigateur.';return;}
+  const cur=Notification.permission;
+  if(cur==='granted'){if(el)el.textContent='✓ Déjà autorisé';return;}
+  if(cur==='denied'){if(el)el.textContent='⚠️ Bloqué — change dans les paramètres du navigateur (cadenas dans la barre d'adresse)';return;}
+  Notification.requestPermission().then(p=>{
+    notifGranted=p==='granted';
+    if(el)el.textContent=p==='granted'?'✓ Notifications activées !':'✗ Refusé';
+    if(p==='granted')initNotifications();
+  });
+}
+
+function sendNotif(title,body,tag='
+'msg'){
   showNotifBanner(title,body);
   if(window.electronAPI){window.electronAPI.showNotification(title,body,tag);return;}
   if(!notifGranted)return;
