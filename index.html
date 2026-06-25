@@ -1520,10 +1520,10 @@ function sendNotif(title,body,tag='msg'){
   showNotifBanner(title,body);
   if(window.electronAPI){window.electronAPI.showNotification(title,body,tag);return;}
   if(!notifGranted)return;
-  // Notif système même si app visible (pour les autres onglets/appareils)
+  // Toujours passer par le SW pour avoir la notif système même en foreground
   if(window._swReg&&window._swReg.active){
     window._swReg.active.postMessage({type:'NOTIFY',title,body,tag});
-  } else {
+  } else if(Notification.permission==='granted'){
     try{new Notification(title,{body,tag});}catch(e){}
   }
 }
