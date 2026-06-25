@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="WebRadio">
 <meta name="mobile-web-app-capable" content="yes">
-<link rel="manifest" id="manifestLink">
+<link rel="manifest" href="/martinews/manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -85,6 +85,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .conv-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:4px;cursor:pointer;transition:background .15s;margin-bottom:2px;border-left:2px solid transparent;}
 .conv-item:hover,.conv-item.active{background:var(--surface2);}
 .conv-item.active{border-left-color:var(--accent);}
+.unread-badge{background:var(--accent);color:white;font-size:10px;font-family:'DM Mono',monospace;font-weight:500;min-width:18px;height:18px;border-radius:9px;display:flex;align-items:center;justify-content:center;padding:0 5px;flex-shrink:0;}
 .av{border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'DM Mono',monospace;font-weight:500;color:white;flex-shrink:0;text-transform:uppercase;}
 .conv-info{flex:1;min-width:0;}
 .conv-name{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -247,6 +248,77 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .tab-content.active{display:flex;}
 .empty{text-align:center;padding:32px 20px;color:var(--muted);font-size:13px;}
 .msg-content strong{font-weight:600;}.msg-content em{font-style:italic;}.msg-content code{font-family:'DM Mono',monospace;background:rgba(255,255,255,.06);padding:1px 5px;border-radius:3px;font-size:12px;}.msg-content a{color:var(--accent);text-decoration:none;}.msg-content a:hover{text-decoration:underline;}
+
+/* ── RESPONSIVE MOBILE ── */
+@media (max-width: 640px) {
+  :root{--sidebar-w:100vw;}
+
+  /* App layout : colonne au lieu de ligne */
+  #appScreen{flex-direction:column;}
+
+  /* Sidebar = barre du bas */
+  .sidebar{
+    width:100%;min-width:0;height:auto;
+    flex-direction:column;
+    border-right:none;border-top:1px solid var(--border);
+    order:2;flex-shrink:0;
+    position:fixed;bottom:0;left:0;right:0;z-index:200;
+    background:var(--surface);
+  }
+  .sidebar-brand{display:none;}
+  .sidebar-list{display:none;}
+  .sidebar-footer{display:none;}
+  .nav-tabs{
+    padding:4px 8px;gap:4px;border-bottom:none;
+    justify-content:space-around;
+  }
+  .nav-tab{flex:1;font-size:9px;padding:6px 2px;}
+
+  /* Main : prend toute la hauteur sauf la nav du bas */
+  .main{order:1;height:calc(100vh - 56px);overflow:hidden;}
+
+  /* Overlay sidebar (liste conversations) */
+  #mobileSidebarOverlay{
+    display:none;position:fixed;inset:0;bottom:56px;
+    background:var(--surface);z-index:190;flex-direction:column;
+    overflow-y:auto;
+  }
+  #mobileSidebarOverlay.open{display:flex;}
+  #mobileSidebarOverlayHeader{
+    padding:12px 16px;border-bottom:1px solid var(--border);
+    display:flex;align-items:center;justify-content:space-between;flex-shrink:0;
+  }
+  #mobileSidebarOverlayHeader .mob-title{font-family:"Bebas Neue",sans-serif;font-size:18px;letter-spacing:.08em;}
+  #mobileSidebarOverlayHeader button{background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;}
+  #mobileSidebarOverlayList{flex:1;padding:8px;}
+
+  /* Chat header : bouton retour */
+  .chat-header{padding:0 12px;}
+  .mobile-back{display:flex!important;}
+
+  /* Messages */
+  .messages-area{padding:10px 12px;}
+  .msg-bwrap{max-width:85%;}
+
+  /* Input */
+  .input-area{padding:8px 10px;}
+  .fmt-bar{display:none;}
+
+  /* Auth */
+  .auth-card{padding:24px 20px;}
+  .radio-title{font-size:40px;}
+
+  /* Modals */
+  .modal{max-width:100%!important;margin:0;border-radius:12px 12px 0 0;position:fixed;bottom:0;left:0;right:0;max-height:90vh;}
+  .overlay{align-items:flex-end;padding:0;}
+
+  /* Notif banner */
+  .notif-banner{top:auto;bottom:70px;right:8px;left:8px;max-width:none;}
+
+  /* Toast */
+  .toast{bottom:70px;right:8px;left:8px;text-align:center;}
+}
+.mobile-back{display:none;background:none;border:none;color:var(--muted);cursor:pointer;padding:4px;margin-right:4px;display:flex;}
 </style>
 </head>
 <body>
@@ -298,7 +370,14 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 
 <!-- APP -->
 <div id="appScreen">
-  <aside class="sidebar">
+  <div id="mobileSidebarOverlay">
+  <div id="mobileSidebarOverlayHeader">
+    <span class="mob-title" id="mobOverlayTitle">Conversations</span>
+    <button onclick="closeMobileOverlay()">×</button>
+  </div>
+  <div id="mobileSidebarOverlayList" class="sidebar-list"></div>
+</div>
+<aside class="sidebar">
     <div class="sidebar-brand"><div class="brand-dot"></div><div class="brand-name">WEB<span>RADIO</span></div></div>
     <div class="nav-tabs">
       <button class="nav-tab active" data-tab="news" onclick="switchTab('news')">
@@ -330,6 +409,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     </div>
     <div class="tab-content" id="tab-mp">
       <div class="chat-header" id="mpHeader" style="display:none;">
+        <button class="mobile-back" onclick="openMobileOverlay("mp")" title="Retour"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 5l-7 7 7 7"/></svg></button>
         <div class="av" id="mpHAv" style="width:32px;height:32px;font-size:12px;"></div>
         <div class="chat-header-info"><div class="chat-header-name" id="mpHName"></div><div class="chat-header-sub">Message privé</div></div>
       </div>
@@ -353,6 +433,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     </div>
     <div class="tab-content" id="tab-groups">
       <div class="chat-header" id="grpHeader" style="display:none;">
+        <button class="mobile-back" onclick="openMobileOverlay("groups")" title="Retour"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 5l-7 7 7 7"/></svg></button>
         <div class="av" id="grpHAv" style="width:32px;height:32px;font-size:12px;"></div>
         <div class="chat-header-info"><div class="chat-header-name" id="grpHName"></div><div class="chat-header-sub" id="grpHSub"></div></div>
         <div class="header-actions"><button class="header-btn" id="grpEditBtn" onclick="openEditGroup()" style="display:none;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button></div>
@@ -466,8 +547,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 </div>
 
 <script>
-const API='https://script.google.com/macros/s/AKfycby4m6_IaNivR9UstyyFw1WvvAwOj4NAXcvVCC-q32aDfKUThpaED1o8zzEXNR-zI5Y6Fw/exec';
-const EDGE_PUSH='https://hikwkdjzwedehijibefz.supabase.co/functions/v1/hyper-handler';
+const API='https://script.google.com/macros/s/AKfycbz4q_MQKREd7dGy_4TqZJLjYD38NNP0d59FhItc7TDsc4iGK-7ZOVI8C0HQJKL-ciCzUA/exec';
 const POLL=5000;
 const EMOJIS=['👍','❤️','😂','😮','😢','🔥','👏','🎵'];
 
@@ -480,6 +560,7 @@ let mpChannel=null,grpChannel=null;
 let ME=null,users=[],groups=[],curTab='news',curMp=null,curGrp=null;
 let replyState={mp:null,grp:null},editingMsg=null;
 let pendingReport=null,pendingSuspend=null;
+let unreadMp={},unreadGrp={};
 
 /* ══ LOADING ══ */
 function setLoadMsg(msg){document.getElementById('loadMsg').textContent=msg;}
@@ -569,10 +650,13 @@ async function showApp(){
     setLoadMsg('Presque prêt…');
     await Promise.all([loadNews(),loadGroups()]);
   } catch(e){console.warn('Init partielle:',e);}
+  const nowIso=new Date().toISOString();
+  users.filter(u=>u.id!==ME.id).forEach(u=>{const cid=getMpId(ME.id,u.id);if(!lastSeenMp[cid])lastSeenMp[cid]=nowIso;});
+  groups.forEach(g=>{if(!lastSeenGrp[g.id])lastSeenGrp[g.id]=nowIso;});
   hideLoad();
   document.getElementById('appScreen').classList.add('visible');
   initAppUI();
-  injectManifest();
+  // manifest served as static file
   initNotifications();
   setInterval(poll,POLL);
 }
@@ -634,6 +718,46 @@ function switchTab(tab){
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===tab));
   document.querySelectorAll('.tab-content').forEach(t=>t.classList.toggle('active',t.id==='tab-'+tab));
   renderSidebar();
+  if(window.innerWidth<=640&&(tab==='mp'||tab==='groups'))openMobileOverlay(tab);
+}
+
+function openMobileOverlay(tab){
+  const ov=document.getElementById('mobileSidebarOverlay');
+  const list=document.getElementById('mobileSidebarOverlayList');
+  const title=document.getElementById('mobOverlayTitle');
+  title.textContent=tab==='mp'?'Conversations':'Groupes';
+  list.innerHTML='';
+  if(tab==='mp'){
+    const others=users.filter(u=>u.id!==ME.id);
+    if(!others.length){list.innerHTML='<div class="empty">Aucun autre utilisateur</div>';}
+    others.forEach(u=>{
+      const cid=getMpId(ME.id,u.id);const uc=unreadMp[cid]||0;
+      const d=document.createElement('div');d.className='conv-item'+(curMp?.id===u.id?' active':'');
+      d.innerHTML=mkAv(u.login,u.avatar_color)+`<div class="conv-info"><div class="conv-name">${u.login}</div><div class="conv-preview">${u.role==='admin'?'★ Admin':'Membre'}</div></div>`+(uc>0?`<div class="unread-badge">${uc>9?'9+':uc}</div>`:'');
+      d.onclick=()=>{openMp(u);closeMobileOverlay();};list.appendChild(d);
+    });
+    const add=document.createElement('div');add.className='list-section';
+    add.innerHTML='<button onclick="promptNewMp();closeMobileOverlay()" style="margin-left:auto">+ Nouveau MP</button>';
+    list.prepend(add);
+  } else {
+    const C=['#5a5a7a','#264653','#6d6875','#2d6a4f','#1d3557','#7b2d8b','#3d405b'];
+    if(!groups.length){list.innerHTML='<div class="empty">Aucun groupe</div>';}
+    groups.forEach(g=>{
+      const col=g._color||C[Math.abs(g.id.split('').reduce((h,c)=>((h<<5)-h)+c.charCodeAt(0),0))%C.length];
+      const ugc=unreadGrp[g.id]||0;
+      const d=document.createElement('div');d.className='conv-item'+(curGrp?.id===g.id?' active':'');
+      d.innerHTML=mkAv(g.name,col)+`<div class="conv-info"><div class="conv-name">${g.name}</div><div class="conv-preview">${g.members.length} membre${g.members.length>1?'s':''}</div></div>`+(ugc>0?`<div class="unread-badge">${ugc>9?'9+':ugc}</div>`:'');
+      d.onclick=()=>{openGroup(g);closeMobileOverlay();};list.appendChild(d);
+    });
+    const add=document.createElement('div');add.className='list-section';
+    add.innerHTML='<button onclick="openCreateGroup();closeMobileOverlay()" style="margin-left:auto">+ Nouveau groupe</button>';
+    list.prepend(add);
+  }
+  ov.classList.add('open');
+}
+
+function closeMobileOverlay(){
+  document.getElementById('mobileSidebarOverlay').classList.remove('open');
 }
 
 /* ══ USERS ══ */
@@ -650,8 +774,10 @@ function renderSidebar(){
     const others=users.filter(u=>u.id!==ME.id);
     if(!others.length){el.innerHTML+='<div class="empty">Aucun autre utilisateur</div>';return;}
     others.forEach(u=>{
+      const cid=getMpId(ME.id,u.id);
+      const uc=unreadMp[cid]||0;
       const d=document.createElement('div');d.className='conv-item'+(curMp?.id===u.id?' active':'');
-      d.innerHTML=mkAv(u.login,u.avatar_color)+`<div class="conv-info"><div class="conv-name">${u.login}</div><div class="conv-preview">${u.role==='admin'?'★ Admin':'Membre'}</div></div>`;
+      d.innerHTML=mkAv(u.login,u.avatar_color)+`<div class="conv-info"><div class="conv-name">${u.login}</div><div class="conv-preview">${u.role==='admin'?'★ Admin':'Membre'}</div></div>`+(uc>0?`<div class="unread-badge">${uc>9?'9+':uc}</div>`:'');
       d.onclick=()=>openMp(u);el.appendChild(d);
     });
   } else if(curTab==='groups'){
@@ -661,8 +787,9 @@ function renderSidebar(){
     const C=['#5a5a7a','#264653','#6d6875','#2d6a4f','#1d3557','#7b2d8b','#3d405b'];
     groups.forEach(g=>{
       const col=g._color||C[Math.abs(g.id.split('').reduce((h,c)=>((h<<5)-h)+c.charCodeAt(0),0))%C.length];
+      const ugc=unreadGrp[g.id]||0;
       const d=document.createElement('div');d.className='conv-item'+(curGrp?.id===g.id?' active':'');
-      d.innerHTML=mkAv(g.name,col)+`<div class="conv-info"><div class="conv-name">${g.name}</div><div class="conv-preview">${g.members.length} membre${g.members.length>1?'s':''}</div></div>`;
+      d.innerHTML=mkAv(g.name,col)+`<div class="conv-info"><div class="conv-name">${g.name}</div><div class="conv-preview">${g.members.length} membre${g.members.length>1?'s':''}</div></div>`+(ugc>0?`<div class="unread-badge">${ugc>9?'9+':ugc}</div>`:'');
       d.onclick=()=>openGroup(g);el.appendChild(d);
     });
   }
@@ -731,6 +858,7 @@ function getMpId(a,b){return[a,b].sort().join('_');}
 
 function openMp(u){
   curMp=u;
+  const cid=getMpId(ME.id,u.id);unreadMp[cid]=0;renderSidebar();
   document.getElementById('mpWelcome').style.display='none';
   document.getElementById('mpMessages').style.cssText='display:flex;flex-direction:column;';
   document.getElementById('mpInput').style.display='';
@@ -755,6 +883,7 @@ function subscribeMp(targetId){
       if(curMp&&curMp.id===targetId){
         appendMsgs([msg],'mp',getMpId(ME.id,targetId));
       } else {
+        const rcid=getMpId(ME.id,targetId);unreadMp[rcid]=(unreadMp[rcid]||0)+1;renderSidebar();
         sendNotif(payload.new.sender_login,payload.new.content.substring(0,80),'mp');
       }
     })
@@ -793,7 +922,7 @@ async function sendMp(){
     if(rep){row.reply_to_id=rep.id;row.reply_preview=rep.preview;}
     const data=await sbInsert('messages_mp',row);
     appendMsgs([sbRowToMsg(data,'mp')],'mp',getMpId(ME.id,curMp.id));
-    getTokensFor(curMp.id).then(tokens=>pushViaEdge(tokens,ME.login,c.substring(0,100),'mp'));
+    api({action:'push_fcm',target_id:curMp.id,title:ME.login,body:c.substring(0,100),tag:'mp'}).catch(()=>{});
   }catch(e){toast('Erreur envoi','error');console.error(e);}
   btn.classList.remove('sending');btn.disabled=false;
 }
@@ -810,6 +939,7 @@ async function loadGroups(){
 
 function openGroup(g){
   curGrp=g;
+  unreadGrp[g.id]=0;renderSidebar();
   document.getElementById('grpWelcome').style.display='none';
   document.getElementById('grpMessages').style.cssText='display:flex;flex-direction:column;';
   document.getElementById('grpHeader').style.display='';
@@ -836,6 +966,7 @@ function subscribeGrp(groupId){
       if(curGrp&&curGrp.id===groupId){
         appendMsgs([msg],'grp',groupId);
       } else {
+        unreadGrp[groupId]=(unreadGrp[groupId]||0)+1;renderSidebar();
         sendNotif(payload.new.sender_login,payload.new.content.substring(0,80),'grp');
       }
     })
@@ -876,7 +1007,7 @@ async function sendGrp(){
     const data=await sbInsert('messages_grp',row);
     appendMsgs([sbRowToMsg(data,'grp')],'grp',curGrp.id);
     const members=(curGrp.members||[]).filter(m=>m!==ME.id);
-    members.forEach(mid=>getTokensFor(mid).then(tokens=>pushViaEdge(tokens,ME.login+' ('+curGrp.name+')',c.substring(0,100),'grp')));
+    members.forEach(mid=>api({action:'push_fcm',target_id:mid,title:ME.login+' ('+curGrp.name+')',body:c.substring(0,100),tag:'grp'}).catch(()=>{}));
   }catch(e){toast('Erreur envoi','error');console.error(e);}
   btn.classList.remove('sending');btn.disabled=false;
 }
@@ -1315,8 +1446,7 @@ async function initNotifications(){
     if(VAPID_KEY){
       fcmToken=await messaging.getToken({vapidKey:VAPID_KEY,serviceWorkerRegistration:reg});
       if(fcmToken){
-        // Sauvegarder dans Supabase directement (plus fiable qu'Apps Script)
-        await sb.from('fcm_tokens').upsert({user_id:ME.id,token:fcmToken,updated_at:new Date().toISOString()},{onConflict:'user_id,token'});
+        await api({action:'save_fcm_token',user_id:ME.id,token:fcmToken});
         console.log('FCM token enregistré');
       }
     }
@@ -1367,34 +1497,14 @@ self.addEventListener('notificationclick',e=>{
   }).catch(()=>{});
 }
 
-// ── Push via Supabase Edge Function (rapide, fiable) ──
-async function pushViaEdge(tokens,title,body,tag){
-  if(!tokens||!tokens.length)return;
-  try{
-    await fetch(EDGE_PUSH,{
-      method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':'Bearer '+SB_KEY},
-      body:JSON.stringify({tokens,title,body,tag:tag||'webradio'})
-    });
-  }catch(e){console.warn('Edge push error:',e);}
-}
-
-// ── Récupère les tokens FCM d'un user depuis fcm_tokens ──
-async function getTokensFor(userId){
-  if(!sb)return[];
-  const {data}=await sb.from('fcm_tokens').select('token').eq('user_id',userId);
-  return(data||[]).map(r=>r.token).filter(Boolean);
-}
-
 function sendNotif(title,body,tag='msg'){
-  // Toujours afficher la bannière in-app
   showNotifBanner(title,body);
   if(window.electronAPI){
     window.electronAPI.showNotification(title,body,tag);
     return;
   }
   if(!notifGranted)return;
-  // Notif système même si l'onglet est visible
+  if(document.visibilityState==='visible')return;
   if(window._swReg&&window._swReg.active){
     window._swReg.active.postMessage({type:'NOTIFY',title,body,tag});
   } else {
@@ -1427,6 +1537,8 @@ async function pollNotifications(){
           const last=newMsgs[newMsgs.length-1];
           lastSeenMp[cid]=last.created_at;
           if(!curMp||curMp.id!==u.id){
+            unreadMp[cid]=(unreadMp[cid]||0)+newMsgs.length;
+            renderSidebar();
             sendNotif(u.login, last.content.substring(0,80),'mp-'+cid);
           }
         }
@@ -1445,6 +1557,8 @@ async function pollNotifications(){
           const last=newMsgs[newMsgs.length-1];
           lastSeenGrp[g.id]=last.created_at;
           if(!curGrp||curGrp.id!==g.id){
+            unreadGrp[g.id]=(unreadGrp[g.id]||0)+newMsgs.length;
+            renderSidebar();
             sendNotif(g.name, (last.sender_login||'?')+' : '+last.content.substring(0,60),'grp-'+g.id);
           }
         }
@@ -1461,23 +1575,7 @@ function initLastSeen(type,id,messages){
 }
 
 /* ══ MANIFEST PWA ══ */
-function injectManifest(){
-  const manifest={
-    name:'WebRadio Chat',
-    short_name:'WebRadio',
-    description:'Espace communauté WebRadio',
-    start_url:'.',
-    display:'standalone',
-    background_color:'#0a0a0f',
-    theme_color:'#e63946',
-    orientation:'portrait-primary',
-    icons:[
-      {src:'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="20" fill="%23e63946"/><text y=".9em" font-size="80" x="10">📻</text></svg>',sizes:'any',type:'image/svg+xml'}
-    ]
-  };
-  const blob=new Blob([JSON.stringify(manifest)],{type:'application/json'});
-  document.getElementById('manifestLink').href=URL.createObjectURL(blob);
-}
+
 
 /* ══ IFRAME LIBRE ══ */
 function pIframe(type){
