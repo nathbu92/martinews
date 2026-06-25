@@ -1508,7 +1508,7 @@ function requestNotifPermission(){
   if(!('Notification' in window)){if(el)el.textContent='Non supporté par ce navigateur.';return;}
   const cur=Notification.permission;
   if(cur==='granted'){if(el)el.textContent='✓ Déjà autorisé';return;}
-  if(cur==='denied'){if(el)el.textContent='⚠️ Bloqué — change dans les paramètres du navigateur (cadenas dans la barre d'adresse)';return;}
+  if(cur==='denied'){if(el)el.textContent='⚠️ Bloqué — change via le cadenas dans la barre adresse';return;}
   Notification.requestPermission().then(p=>{
     notifGranted=p==='granted';
     if(el)el.textContent=p==='granted'?'✓ Notifications activées !':'✗ Refusé';
