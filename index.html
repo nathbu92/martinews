@@ -1516,8 +1516,7 @@ function requestNotifPermission(){
   });
 }
 
-function sendNotif(title,body,tag='
-'msg'){
+function sendNotif(title,body,tag='msg'){
   showNotifBanner(title,body);
   if(window.electronAPI){window.electronAPI.showNotification(title,body,tag);return;}
   if(!notifGranted)return;
