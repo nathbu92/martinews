@@ -664,6 +664,7 @@ async function showApp(){
   initAppUI();
   // manifest served as static file
   initNotifications();
+  subscribeAll();
   setInterval(poll,POLL);
 }
 
@@ -886,10 +887,11 @@ function subscribeMp(targetId){
     },payload=>{
       if(payload.new.receiver_id!==ME.id)return;
       const msg=sbRowToMsg(payload.new,'mp');
-      if(curMp&&curMp.id===targetId){
-        appendMsgs([msg],'mp',getMpId(ME.id,targetId));
+      const rcid=getMpId(ME.id,targetId);
+      if(curMp&&curMp.id===targetId&&curTab==='mp'){
+        appendMsgs([msg],'mp',rcid);
       } else {
-        const rcid=getMpId(ME.id,targetId);unreadMp[rcid]=(unreadMp[rcid]||0)+1;renderSidebar();
+        unreadMp[rcid]=(unreadMp[rcid]||0)+1;renderSidebar();
         sendNotif(payload.new.sender_login,payload.new.content.substring(0,80),'mp');
       }
     })
@@ -900,6 +902,42 @@ function subscribeMp(targetId){
       if(el)el.replaceWith(buildMsg(sbRowToMsg(payload.new,'mp'),'mp',getMpId(ME.id,targetId)));
     })
     .subscribe();
+}
+
+// Souscription globale à tous les MP et groupes pour recevoir notifs partout
+function subscribeAll(){
+  if(!sb)return;
+  // MP : écoute tous les messages entrants (receiver_id = moi)
+  sb.channel('all-mp-incoming')
+    .on('postgres_changes',{
+      event:'INSERT',schema:'public',table:'messages_mp',
+      filter:`receiver_id=eq.${ME.id}`
+    },payload=>{
+      const tid=payload.new.sender_id;
+      const rcid=getMpId(ME.id,tid);
+      if(curMp&&curMp.id===tid&&curTab==='mp'){
+        // déjà géré par subscribeMp
+        return;
+      }
+      unreadMp[rcid]=(unreadMp[rcid]||0)+1;renderSidebar();
+      sendNotif(payload.new.sender_login,payload.new.content.substring(0,80),'mp');
+    })
+    .subscribe();
+
+  // Groupes : écoute tous les groupes dont je suis membre
+  groups.forEach(g=>{
+    sb.channel('all-grp-'+g.id)
+      .on('postgres_changes',{
+        event:'INSERT',schema:'public',table:'messages_grp',
+        filter:`group_id=eq.${g.id}`
+      },payload=>{
+        if(payload.new.sender_id===ME.id)return;
+        if(curGrp&&curGrp.id===g.id&&curTab==='groups')return;
+        unreadGrp[g.id]=(unreadGrp[g.id]||0)+1;renderSidebar();
+        sendNotif(payload.new.sender_login+' · '+g.name,payload.new.content.substring(0,80),'grp');
+      })
+      .subscribe();
+  });
 }
 
 async function loadMpMsgs(){
@@ -969,11 +1007,11 @@ function subscribeGrp(groupId){
     },payload=>{
       if(payload.new.sender_id===ME.id)return;
       const msg=sbRowToMsg(payload.new,'grp');
-      if(curGrp&&curGrp.id===groupId){
+      if(curGrp&&curGrp.id===groupId&&curTab==='groups'){
         appendMsgs([msg],'grp',groupId);
       } else {
         unreadGrp[groupId]=(unreadGrp[groupId]||0)+1;renderSidebar();
-        sendNotif(payload.new.sender_login,payload.new.content.substring(0,80),'grp');
+        sendNotif(payload.new.sender_login+' (groupe)',payload.new.content.substring(0,80),'grp');
       }
     })
     .on('postgres_changes',{
@@ -1460,7 +1498,7 @@ async function initNotifications(){
     // Notifs quand app au premier plan
     messaging.onMessage(payload=>{
       const {title,body,tag}=payload.data||{};
-      showNotifBanner(title||'WebRadio',body||'',tag);
+      sendNotif(title||'WebRadio',body||'',tag||'webradio');
     });
 
   }catch(e){
